@@ -2,7 +2,8 @@ import React from 'react'
 import Header from './components/Header'
 import SignUp from './pages/SignUp'
 import LogIn from './pages/LogIn'
-import { Route, Routes } from 'react-router'
+import { Route, Routes, Navigate } from 'react-router-dom'
+import Dashboard from './pages/Dashboard'
 
 const App = () => {
   return (
@@ -11,6 +12,8 @@ const App = () => {
       <Routes>
         <Route path='/signup' element={<SignUp />} />
         <Route path='/login' element={<LogIn />} />
+        <Route path='/dashboard' element={<Dashboard />} />
+        <Route path='/dasboard' element={<Navigate to='/dashboard' replace />} />
       </Routes>
     </div>
   )

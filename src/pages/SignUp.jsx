@@ -142,7 +142,7 @@ const SignUp = () => {
 
                         <h4 className="text-xs text-gray-500 mt-2 px-1">
                             By signing up for an account, you agree to our{" "}
-                            <a href="/" className="font-normal">Terms of Service</a> and Privacy policy.
+                            <a href="/terms" className="font-normal">Terms of Service</a> and Privacy policy.
                         </h4>
 
                         <button

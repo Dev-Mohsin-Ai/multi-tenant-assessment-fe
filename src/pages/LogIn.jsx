@@ -7,7 +7,7 @@ import Radar from '../assets/icons/Radar.svg'
 import Condition360 from '../assets/icons/Condition360.svg'
 import ControlMap from '../assets/icons/ControlMap.svg'
 import Quoter from '../assets/icons/Quoter.svg'
-import { Link } from 'react-router'
+import { Link } from 'react-router-dom'
 
 const LogIn = () => {
 
@@ -83,7 +83,7 @@ const LogIn = () => {
 
                             <h4 className="text-xs text-gray-500 px-1 text-center">
                                 By signing in, you agree to our{" "}
-                                <a href="/" className="font-normal">Terms of Service</a> and Privacy policy.
+                                <Link to="/terms" className="font-normal">Terms of Service</Link> and Privacy policy.
                             </h4>
 
                             <button
@@ -94,7 +94,7 @@ const LogIn = () => {
 
                             {/* Centered Link 1 */}
                             <Link
-                                to="/SignUp"
+                                to="/signup"
                                 className="mx-auto text-center text-sm text-[#4E6ED0] hover:bg-[#e6ebfb] py-2 w-60 flex justify-center rounded-lg"
                             >
                                 I don't know my credentials
@@ -102,7 +102,7 @@ const LogIn = () => {
 
                             {/* Centered Link 2 */}
                             <Link
-                                to="/SignUp"
+                                to="/signup"
                                 className="mx-auto text-center text-sm text-[#4E6ED0] hover:bg-[#e6ebfb] py-2 w-60 flex justify-center rounded-lg"
                             >
                                 Sign up for free
