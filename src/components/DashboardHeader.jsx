@@ -6,10 +6,13 @@ import { FaBell } from "react-icons/fa";
 import { FaRegStar } from "react-icons/fa";
 import { FaSearch } from "react-icons/fa";
 import Navbar from './Navbar';
+import { useNavigate } from 'react-router';
 
 const DashboardHeader = () => {
+
+    const navigate = useNavigate();
     return (
-        <div className="fixed top-9 left-0 right-0 z-20 h-12 w-full bg-[rgb(37,38,45)] text-white border-t-3 border-t-[rgb(101,101,101)] px-4 py-0.5 flex justify-between items-center">
+        <div className="fixed top-10 left-0 right-0 z-20 h-12 w-full bg-[rgb(37,38,45)] text-white border-t border-t-[rgb(101,101,101)] px-4 py-0.5 flex justify-between items-center">
 
             {/* Left Section */}
             <div className="flex items-center gap-2 flex-wrap">
@@ -17,10 +20,10 @@ const DashboardHeader = () => {
                 <img
                     src={LifeCycle}
                     alt="Life Cycle"
-                    className="h-5 w-5 grayscale contrast-400 brightness-60 invert cursor-pointer"
+                    className="h-6 w-6 grayscale contrast-400 brightness-60 invert cursor-pointer"
                 />
 
-                <h1 className="text-xl font-medium cursor-pointer whitespace-nowrap">
+                <h1 onClick={() => navigate('/clients')} className="text-lg font-bold cursor-pointer whitespace-nowrap tracking-wide">
                     Lifecycle Manager
                 </h1>
 

@@ -3,7 +3,7 @@ import LoginLogo from '../assets/LoginLogo.png'
 import Logo from '../assets/Logo.png'
 import Input from '../components/Input'
 
-const SignUp = () => {
+const Signup = () => {
     const [Company, setCompany] = useState("")
     const [FirstName, setFirstName] = useState("")
     const [LastName, setLastName] = useState("")
@@ -161,4 +161,5 @@ const SignUp = () => {
     )
 }
 
-export default SignUp
+export default Signup
+

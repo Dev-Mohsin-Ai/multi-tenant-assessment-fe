@@ -9,7 +9,7 @@ import ControlMap from '../assets/icons/ControlMap.svg'
 import Quoter from '../assets/icons/Quoter.svg'
 import { Link } from 'react-router-dom'
 
-const LogIn = () => {
+const Login = () => {
 
     const [Email, SetEmail] = useState("")
     const [Error, setError] = useState({})
@@ -119,4 +119,5 @@ const LogIn = () => {
     )
 }
 
-export default LogIn
+export default Login
+

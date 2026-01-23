@@ -1,6 +1,6 @@
 import React from 'react'
 
-const Input = ({ label, type = "text", text, onChange, value, required, error }) => {
+const Input = ({ label, type = "text", text, onChange, value, required, error, placeholder }) => {
 
     return (
         <div className="flex flex-col px-2">
@@ -13,6 +13,7 @@ const Input = ({ label, type = "text", text, onChange, value, required, error })
             <input
                 type={type}
                 onChange={onChange}
+                placeholder={placeholder}
                 value={value}
                 required={required}
                 className="h-10 px-3 border-[#EFEAE8] border-2 rounded-xl outline-none

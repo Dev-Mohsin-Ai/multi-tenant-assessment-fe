@@ -1,17 +1,24 @@
-import React, { useState } from 'react'
-import List from '../assets/icons/List.svg'
-const Sidebar = () => {
-    const [isSelect, setIsSelect] = useState(false);
+import React from 'react'
 
+const Sidebar = ({ items, activeId, onSelect }) => {
     return (
-        <div
-            onClick={() => setIsSelect(true)}
-            className={`flex items-center gap-3 px-4 cursor-pointer py-2 max-w-45 pr-2 ${isSelect ? 'bg-gray-200 border-l-2 border-black rounded-r-lg' : ''}`}
-        >
-            <img src={List} alt="" />
-            <h1>Assesments</h1>
-        </div>
-    );
-};
+        <nav className="w-48 py-3 pr-3">
+            {items.map((item) => {
+                const isActive = item.id === activeId
+                return (
+                    <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => onSelect(item.id)}
+                        className={`flex w-full items-center gap-3 px-4 py-2 text-left ${isActive ? 'bg-gray-200 border-l-2 border-black rounded-r-lg' : 'hover:bg-gray-100'}`}
+                    >
+                        {item.icon && <img src={item.icon} alt="" />}
+                        <span>{item.label}</span>
+                    </button>
+                )
+            })}
+        </nav>
+    )
+}
 
 export default Sidebar
