@@ -23,14 +23,17 @@ const Table = ({ columns, data }) => {
                 <tbody>
                     {data.map((row, rowIndex) => (
                         <tr key={rowIndex} className="odd:bg-gray-100 even:bg-white">
-                            {columns.map((col) => (
-                                <td
-                                    key={col.key}
-                                className="px-3 py-3 text-sm"
-                                >
-                                    {row[col.key]}
-                                </td>
-                            ))}
+                            {columns.map((col) => {
+                                const cell = col.render ? col.render(row[col.key], row) : row[col.key]
+                                return (
+                                    <td
+                                        key={col.key}
+                                        className="px-3 py-3 text-sm"
+                                    >
+                                        {cell}
+                                    </td>
+                                )
+                            })}
                         </tr>
                     ))}
                 </tbody>
