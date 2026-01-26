@@ -265,18 +265,50 @@ const ClientDashboard = () => {
       assessmentsPath={organizationId ? `/clients/${organizationId}` : '/clients'}
     >
       <div className="bg-[rgb(248,248,250)] min-h-[calc(100vh-6rem)] rounded-tl-xl overflow-hidden">
-        <div className="px-6 pt-6">
+        <div className="px-4 md:px-6 pt-4 md:pt-6">
+          <div className="flex items-center justify-between gap-3 sm:hidden">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">
+                {organization?.name || 'Client'}
+              </h2>
+              {organization?.description && (
+                <p className="mt-1 text-sm text-gray-600">
+                  {organization.description}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/clients')}
+              className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              aria-label="Back to clients"
+            >
+              <FiArrowLeft aria-hidden="true" />
+              Back to clients
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setOpenDialog(true)}
+            disabled={creatingAssessment}
+            className="mt-3 sm:hidden h-9 px-4 rounded-md bg-[rgb(5,117,204)] text-white text-sm font-medium hover:bg-[rgb(0,97,170)] disabled:opacity-70 inline-flex items-center gap-2"
+          >
+            <FaPlus />
+            {creatingAssessment ? 'Creating...' : 'Create New Assessment'}
+          </button>
+
           <button
             type="button"
             onClick={() => navigate('/clients')}
-            className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            className="hidden sm:inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
             aria-label="Back to clients"
           >
             <FiArrowLeft aria-hidden="true" />
             Back to clients
           </button>
 
-          <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="mt-3 hidden sm:flex flex-col sm:flex-row items-start justify-between gap-3">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">
                 {organization?.name || 'Client'}
@@ -297,7 +329,6 @@ const ClientDashboard = () => {
               {creatingAssessment ? 'Creating...' : 'Create New Assessment'}
             </button>
           </div>
-
           {openDialog && (
             <AssesmentDialogue
               onClose={() => setOpenDialog(false)}

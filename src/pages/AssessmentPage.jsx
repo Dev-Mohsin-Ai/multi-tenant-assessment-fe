@@ -44,7 +44,7 @@ const AssessmentPage = () => {
       activeNavId="assessments"
       assessmentsPath={organizationId ? `/clients/${organizationId}` : '/clients'}
     >
-      <div className="bg-[rgb(248,248,250)] min-h-[calc(100vh-6rem)] rounded-tl-xl overflow-hidden p-6">
+      <div className="bg-[rgb(248,248,250)] min-h-[calc(100vh-6rem)] rounded-tl-xl overflow-hidden p-4 md:p-6">
         <PerformAssessment
           assessmentId={assessmentId}
           onBack={handleBack}

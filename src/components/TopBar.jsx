@@ -13,7 +13,7 @@ const TopBar = ({ activeLabel, clientName = 'Mia Labs' }) => {
         setHoverInfo(false)
     }
     return (
-        <div className="w-full px-4 py-3">
+        <div className="w-full px-4 mt-4 pb-3 md:pt-3">
 
             <div className="flex items-center justify-between flex-wrap gap-4">
 
@@ -42,7 +42,7 @@ const TopBar = ({ activeLabel, clientName = 'Mia Labs' }) => {
                     </h2>
 
                     {/* Only Pro + X green */}
-                    <span className="px-2 rounded-md text-xs font-semibold">
+                    <span className="hidden md:inline-flex items-center gap-2 px-2 rounded-md text-xs font-semibold">
                         <span className="bg-[rgb(61,144,114)] text-white px-1 rounded-md py-0.5">
                             PRO + X
                         </span>{' '}
@@ -54,7 +54,7 @@ const TopBar = ({ activeLabel, clientName = 'Mia Labs' }) => {
                 </div>
 
                 {/* RIGHT SIDE */}
-                <div className="flex items-center gap-3 text-sm">
+                <div className="hidden md:flex items-center gap-3 text-sm">
                     <div className="relative">
                         <IoIosInformationCircle
                             onMouseEnter={HandleMouseEnter}

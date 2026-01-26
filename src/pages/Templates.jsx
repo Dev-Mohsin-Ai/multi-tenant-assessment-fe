@@ -8,9 +8,59 @@ import {
 } from '../services/templateService'
 import {
   FiPlus, FiEdit2, FiTrash2, FiSave, FiSearch, FiFileText,
-  FiChevronDown, FiChevronRight, FiCopy, FiFolder, FiLayers,
+  FiChevronDown, FiChevronRight, FiFolder, FiLayers,
   FiCheckCircle, FiAlertCircle, FiAlertTriangle
 } from 'react-icons/fi'
+
+const YES_NO_OPTIONS = [
+  { response_type: 'yes', description: '', score: 10 },
+  { response_type: 'no', description: '', score: 0 },
+]
+
+const MULTI_RESPONSE_OPTIONS = [
+  { response_type: 'satisfactory', description: '', score: 10 },
+  { response_type: 'acceptable_risk', description: '', score: 7 },
+  { response_type: 'needs_attention', description: '', score: 5 },
+  { response_type: 'at_risk', description: '', score: 2 },
+  { response_type: 'not_applicable', description: '', score: 0 },
+  { response_type: 'unknown', description: '', score: 0 },
+]
+
+const getResponseBadgeClass = (value, index = 0) => {
+  const normalized = String(value || '').toLowerCase()
+  if (normalized.includes('satisfactory')) return 'bg-green-100 text-green-700'
+  if (normalized.includes('acceptable')) return 'bg-blue-100 text-blue-700'
+  if (normalized.includes('needs')) return 'bg-orange-100 text-orange-700'
+  if (normalized.includes('at_risk')) return 'bg-red-100 text-red-700'
+  if (normalized.includes('not_applicable')) return 'bg-purple-100 text-purple-700'
+  if (normalized.includes('unknown')) return 'bg-gray-100 text-gray-700'
+  if (normalized.includes('yes')) return 'bg-green-100 text-green-700'
+  if (normalized.includes('partial')) return 'bg-orange-100 text-orange-700'
+  if (normalized.includes('no')) return 'bg-red-100 text-red-700'
+  const palette = [
+    'bg-teal-100 text-teal-700',
+    'bg-amber-100 text-amber-700',
+    'bg-sky-100 text-sky-700',
+    'bg-rose-100 text-rose-700',
+    'bg-lime-100 text-lime-700',
+  ]
+  return palette[index % palette.length]
+}
+
+const formatResponseLabel = (value) =>
+  String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+
+const getDefaultOptions = (type) => {
+  if (type === 'multi_response') return MULTI_RESPONSE_OPTIONS
+  return YES_NO_OPTIONS
+}
+
+const getNextMultiResponse = (current = []) => {
+  const index = current.length % MULTI_RESPONSE_OPTIONS.length
+  return { ...MULTI_RESPONSE_OPTIONS[index] }
+}
 
 const createCategory = (weight = 0) => ({
   title: '',
@@ -26,13 +76,7 @@ const createSubcategory = (weight = 0) => ({
   scoring_instructions: '',
   remediation_tips: '',
   type: 'yes_no',
-  response_options: [],
-})
-
-const createOption = () => ({
-  response_type: 'satisfactory',
-  description: '',
-  score: 0,
+  response_options: getDefaultOptions('yes_no'),
 })
 
 const normalizeTemplate = (template) => ({
@@ -50,7 +94,7 @@ const normalizeTemplate = (template) => ({
         weight_percentage: subcategory?.weight_percentage ?? 0,
         scoring_instructions: subcategory?.scoring_instructions || '',
         remediation_tips: subcategory?.remediation_tips || '',
-        type: subcategory?.type || 'yes_no',
+        type: subcategory?.type === 'multi_response' ? 'multi_response' : 'yes_no',
         order: subcategory?.order ?? 0,
         response_options: (
           subcategory?.response_options ||
@@ -74,21 +118,50 @@ const buildPayload = (template) => ({
     description: category.description || '',
     weight_percentage: Number(category.weight_percentage) || 0,
     order: categoryIndex,
-    sub_categories: category.sub_categories.map((subcategory, subIndex) => ({
-      title: subcategory.title.trim(),
-      description: subcategory.description || '',
-      weight_percentage: Number(subcategory.weight_percentage) || 0,
-      scoring_instructions: subcategory.scoring_instructions || '',
-      remediation_tips: subcategory.remediation_tips || '',
-      type: subcategory.type || 'yes_no',
-      order: subIndex,
-      response_options: subcategory.response_options.map((option, optionIndex) => ({
-        response_type: option.response_type || 'satisfactory',
-        description: option.description || '',
-        score: Number(option.score) || 0,
-        order: optionIndex,
-      })),
-    })),
+    sub_categories: category.sub_categories.map((subcategory, subIndex) => {
+      const type = subcategory.type === 'multi_response' ? 'multi_response' : 'yes_no'
+      const allowedTypes =
+        type === 'multi_response'
+          ? [
+              'satisfactory',
+              'acceptable_risk',
+              'needs_attention',
+              'at_risk',
+              'not_applicable',
+              'unknown',
+            ]
+          : ['yes', 'no']
+      const response_options =
+        type === 'multi_response'
+          ? subcategory.response_options.filter((option) =>
+              allowedTypes.includes(option.response_type)
+            )
+          : allowedTypes.map((value) => {
+              const existing = subcategory.response_options.find(
+                (option) => option.response_type === value
+              )
+              return {
+                response_type: value,
+                description: existing?.description || '',
+                score: Number(existing?.score ?? (value === 'yes' ? 10 : 0)) || 0,
+              }
+            })
+      return {
+        title: subcategory.title.trim(),
+        description: subcategory.description || '',
+        weight_percentage: Number(subcategory.weight_percentage) || 0,
+        scoring_instructions: subcategory.scoring_instructions || '',
+        remediation_tips: subcategory.remediation_tips || '',
+        type,
+        order: subIndex,
+        response_options: response_options.map((option, optionIndex) => ({
+          response_type: option.response_type,
+          description: option.description || '',
+          score: Number(option.score) || 0,
+          order: optionIndex,
+        })),
+      }
+    }),
   })),
 })
 
@@ -171,6 +244,34 @@ const Templates = () => {
         const sub_categories = category.sub_categories.map((subcategory, subIdx) =>
           subIdx === subIndex ? { ...subcategory, [field]: value } : subcategory
         )
+        return { ...category, sub_categories }
+      })
+      return { ...prev, categories }
+    })
+  }
+
+  const handleSubcategoryTypeChange = (catIndex, subIndex, value) => {
+    setFormData((prev) => {
+      const categories = prev.categories.map((category, categoryIndex) => {
+        if (categoryIndex !== catIndex) {
+          return category
+        }
+        const sub_categories = category.sub_categories.map((subcategory, subIdx) => {
+          if (subIdx !== subIndex) {
+            return subcategory
+          }
+          let response_options = subcategory.response_options
+          if (value === 'yes_no') {
+            response_options = YES_NO_OPTIONS
+          } else if (value === 'multi_response') {
+            response_options = MULTI_RESPONSE_OPTIONS
+          }
+          return {
+            ...subcategory,
+            type: value,
+            response_options: response_options.map((option) => ({ ...option })),
+          }
+        })
         return { ...category, sub_categories }
       })
       return { ...prev, categories }
@@ -294,10 +395,19 @@ const Templates = () => {
           if (subIdx !== subIndex) {
             return subcategory
           }
-          return {
-            ...subcategory,
-            response_options: [...subcategory.response_options, createOption()],
+          if (subcategory.type !== 'multi_response') {
+            return subcategory
           }
+          if (subcategory.type === 'multi_response') {
+            return {
+              ...subcategory,
+              response_options: [
+                ...subcategory.response_options,
+                getNextMultiResponse(subcategory.response_options),
+              ],
+            }
+          }
+          return subcategory
         })
         return { ...category, sub_categories }
       })
@@ -313,6 +423,9 @@ const Templates = () => {
         }
         const sub_categories = category.sub_categories.map((subcategory, subIdx) => {
           if (subIdx !== subIndex) {
+            return subcategory
+          }
+          if (subcategory.type !== 'multi_response') {
             return subcategory
           }
           return {
@@ -397,8 +510,12 @@ const Templates = () => {
       }
       await loadTemplates()
       setTimeout(() => setSuccess(''), 3000)
-    } catch {
-      setError('Unable to save template. Check required fields and weights.')
+    } catch (err) {
+      const details = err?.response?.data?.detail
+      const message = Array.isArray(details)
+        ? details.map((item) => item?.msg || 'Validation error').join(' ')
+        : details || 'Unable to save template. Check required fields and weights.'
+      setError(message)
     } finally {
       setSaving(false)
     }
@@ -549,7 +666,7 @@ const Templates = () => {
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                   {filteredTemplates.map((template) => {
                     const categoryCount = template.categories?.length || 0
                     const subcategoryCount = template.categories?.reduce(
@@ -578,10 +695,10 @@ const Templates = () => {
                             </button>
                           </div>
                         </div>
-                        <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
                           {template.title || `Template ${template.id}`}
                         </h3>
-                        <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                        <div className="flex flex-wrap gap-2 text-sm text-gray-600">
                           <span className="px-2 py-1 bg-gray-100 rounded-md">
                             {categoryCount} {categoryCount === 1 ? 'category' : 'categories'}
                           </span>
@@ -610,7 +727,7 @@ const Templates = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, title: e.target.value }))
                       }
-                      className="w-full h-12 px-4 rounded-md border border-gray-300 text-lg font-semibold focus:outline-none transition-all duration-200"
+                      className="w-full h-11 px-4 rounded-md border border-gray-300 text-lg font-semibold focus:outline-none transition-all duration-200"
                       placeholder="Enter template name..."
                     />
                   </div>
@@ -619,7 +736,7 @@ const Templates = () => {
                       type="button"
                       onClick={handleSave}
                       disabled={saving}
-                      className="h-9 px-6 rounded-md bg-[rgb(5,117,204)] text-white text-sm font-medium hover:bg-[rgb(0,97,170)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2"
+                      className="h-9 px-5 rounded-md bg-[rgb(5,117,204)] text-white text-sm font-medium hover:bg-[rgb(0,97,170)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2"
                     >
                       <FiSave /> {saving ? 'Saving...' : selectedTemplateId ? 'Update' : 'Save'}
                     </button>
@@ -628,7 +745,7 @@ const Templates = () => {
                         type="button"
                         onClick={handleDeleteConfirm}
                         disabled={deleting}
-                        className="h-9 px-6 rounded-md bg-white border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2"
+                        className="h-9 px-5 rounded-md bg-white border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2"
                       >
                         <FiTrash2 /> {deleting ? 'Deleting...' : 'Delete'}
                       </button>
@@ -637,7 +754,7 @@ const Templates = () => {
                 </div>
 
                 {/* Weight Indicator */}
-                <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3">
+                <div className={`rounded-md border px-4 py-3 ${totalCategoryWeight === 100 ? 'border-gray-200 bg-gray-50' : 'border-red-300 bg-red-50'}`}>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-gray-700">
                       Total Category Weight
@@ -646,6 +763,11 @@ const Templates = () => {
                       {totalCategoryWeight}%
                     </span>
                   </div>
+                  {totalCategoryWeight !== 100 && (
+                    <p className="mt-2 text-xs text-red-600">
+                      Category weights must sum to 100%.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -693,13 +815,18 @@ const Templates = () => {
                       )
                       const isCollapsed = collapsedCategories[catIndex]
 
+                      const categoryBg =
+                        catIndex % 2 === 0 ? 'bg-white' : 'bg-[rgb(248,249,251)]'
+                      const categoryHeaderBg =
+                        catIndex % 2 === 0 ? 'bg-gray-50' : 'bg-[rgb(242,244,247)]'
+
                       return (
                         <div
                           key={`category-${catIndex}`}
-                          className="rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm hover:shadow-md transition-all duration-200"
+                          className={`rounded-lg border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 ${categoryBg}`}
                         >
                           {/* Category Header */}
-                          <div className="bg-gray-50 border-b border-gray-200 px-5 py-4">
+                          <div className={`${categoryHeaderBg} border-b border-gray-200 px-5 py-4`}>
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
                                 <button
@@ -723,7 +850,7 @@ const Templates = () => {
                                   className="text-sm px-3 py-1 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all duration-200 flex items-center gap-1"
                                   title="Duplicate category"
                                 >
-                                  <FiCopy /> Duplicate
+                                  Duplicate
                                 </button>
                                 <button
                                   type="button"
@@ -777,7 +904,9 @@ const Templates = () => {
                                     onChange={(e) =>
                                       updateCategory(catIndex, 'weight_percentage', e.target.value)
                                     }
-                                    className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none transition-all duration-200"
+                                    className={`w-full h-10 px-3 rounded-md border bg-white text-sm focus:outline-none transition-all duration-200 ${
+                                      totalCategoryWeight === 100 ? 'border-gray-300' : 'border-red-400'
+                                    }`}
                                     placeholder="0-100"
                                   />
                                 </div>
@@ -787,11 +916,19 @@ const Templates = () => {
 
                           {/* Category Content */}
                           {!isCollapsed && (
-                            <div className="p-5">
+                            <div className={`p-5 ${categoryBg}`}>
                               <div className="flex items-center justify-between mb-4">
                                 <h4 className="text-sm font-semibold text-gray-700">
                                   Subcategories
                                 </h4>
+                                {category.sub_categories.reduce(
+                                  (sum, sub) => sum + (Number(sub.weight_percentage) || 0),
+                                  0
+                                ) !== 100 && (
+                                  <span className="text-xs text-red-600">
+                                    Subcategory weights must sum to 100%.
+                                  </span>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => addSubcategory(catIndex)}
@@ -851,7 +988,7 @@ const Templates = () => {
                                                 className="text-xs px-2 py-1 rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all duration-200"
                                                 title="Duplicate subcategory"
                                               >
-                                                <FiCopy />
+                                                Duplicate
                                               </button>
                                               <button
                                                 type="button"
@@ -923,13 +1060,21 @@ const Templates = () => {
                                                         e.target.value
                                                       )
                                                     }
-                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
+                                                    className={`w-full h-9 px-2 rounded border bg-white text-xs focus:outline-none transition-all duration-200 ${
+                                                      category.sub_categories.reduce(
+                                                        (sum, sub) =>
+                                                          sum + (Number(sub.weight_percentage) || 0),
+                                                        0
+                                                      ) === 100
+                                                        ? 'border-gray-300'
+                                                        : 'border-red-400'
+                                                    }`}
                                                     placeholder="0-100"
                                                   />
                                                 </div>
                                               </div>
 
-                                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 bg-[rgb(248,248,250)] p-3 rounded-md border border-gray-200">
                                                 <div>
                                                   <label className="text-[10px] font-medium text-gray-600 mb-1 block">
                                                     Scoring Instructions
@@ -972,20 +1117,20 @@ const Templates = () => {
                                                   <label className="text-[10px] font-medium text-gray-600 mb-1 block">
                                                     Type
                                                   </label>
-                                                  <input
-                                                    type="text"
+                                                  <select
                                                     value={subcategory.type}
                                                     onChange={(e) =>
-                                                      updateSubcategory(
+                                                      handleSubcategoryTypeChange(
                                                         catIndex,
                                                         subIndex,
-                                                        'type',
                                                         e.target.value
                                                       )
                                                     }
                                                     className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
-                                                    placeholder="yes_no"
-                                                  />
+                                                  >
+                                                    <option value="yes_no">Yes/No</option>
+                                                    <option value="multi_response">Multi Response</option>
+                                                  </select>
                                                 </div>
                                               </div>
                                             </>
@@ -994,19 +1139,40 @@ const Templates = () => {
 
                                         {/* Response Options */}
                                         {!isSubCollapsed && (
-                                          <div className="p-4 bg-gray-50">
-                                            <div className="flex items-center justify-between mb-3">
-                                              <h5 className="text-xs font-semibold text-gray-700">
-                                                Response Options
-                                              </h5>
-                                              <button
-                                                type="button"
-                                                onClick={() => addOption(catIndex, subIndex)}
-                                                className="text-xs px-2 py-1 rounded bg-[rgb(5,117,204)] text-white hover:bg-[rgb(0,97,170)] transition-all duration-200 flex items-center gap-1"
-                                              >
-                                                <FiPlus /> Add Option
-                                              </button>
-                                            </div>
+                                          <div className="p-4 bg-[rgb(248,248,250)] border-t border-gray-200">
+                                              <div className="flex items-center justify-between mb-3">
+                                                <div>
+                                                  <h5 className="text-xs font-semibold text-gray-700">
+                                                    Response Options
+                                                  </h5>
+                                                  {subcategory.type !== 'multi_response' && (
+                                                    <p className="text-[10px] text-gray-500">
+                                                      Fixed options for this type.
+                                                    </p>
+                                                  )}
+                                                </div>
+                                                {subcategory.type === 'multi_response' && (
+                                                  <div className="flex items-center gap-2">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => removeOption(catIndex, subIndex, 0)}
+                                                      disabled={subcategory.response_options.length === 0}
+                                                      className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all duration-200 disabled:opacity-50"
+                                                      title="Remove option"
+                                                    >
+                                                      -
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => addOption(catIndex, subIndex)}
+                                                      className="text-xs px-2 py-1 rounded bg-[rgb(5,117,204)] text-white hover:bg-[rgb(0,97,170)] transition-all duration-200"
+                                                      title="Add option"
+                                                    >
+                                                      +
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </div>
 
                                             {subcategory.response_options.length === 0 ? (
                                               <div className="text-center py-4 border border-dashed border-gray-300 rounded bg-white">
@@ -1027,27 +1193,19 @@ const Templates = () => {
                                                   (option, optionIndex) => (
                                                     <div
                                                       key={`option-${catIndex}-${subIndex}-${optionIndex}`}
-                                                      className="grid grid-cols-1 md:grid-cols-[1fr_2fr_0.8fr_auto] gap-2 bg-white p-3 rounded border border-gray-200"
+                                                      className="grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-2 bg-white p-3 rounded border border-gray-200 shadow-sm"
                                                     >
                                                       <div>
                                                         <label className="text-[10px] font-medium text-gray-600 mb-1 block">
                                                           Response Type
                                                         </label>
-                                                        <input
-                                                          type="text"
-                                                          value={option.response_type}
-                                                          onChange={(e) =>
-                                                            updateOption(
-                                                              catIndex,
-                                                              subIndex,
-                                                              optionIndex,
-                                                              'response_type',
-                                                              e.target.value
-                                                            )
-                                                          }
-                                                          className="w-full h-8 px-2 rounded border border-gray-300 text-xs focus:outline-none transition-all duration-200"
-                                                          placeholder="satisfactory"
-                                                        />
+                                                        <div className="mb-1">
+                                                          <span
+                                                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${getResponseBadgeClass(option.response_type, optionIndex)}`}
+                                                          >
+                                                            {formatResponseLabel(option.response_type || 'custom')}
+                                                          </span>
+                                                        </div>
                                                       </div>
                                                       <div>
                                                         <label className="text-[10px] font-medium text-gray-600 mb-1 block">
@@ -1065,44 +1223,27 @@ const Templates = () => {
                                                               e.target.value
                                                             )
                                                           }
-                                                          className="w-full h-8 px-2 rounded border border-gray-300 text-xs focus:outline-none transition-all duration-200"
+                                                          className="w-full h-8 px-2 rounded border border-gray-300 bg-[rgb(248,248,250)] text-xs focus:outline-none transition-all duration-200"
                                                           placeholder="Description"
                                                         />
                                                       </div>
-                                                      <div>
-                                                        <label className="text-[10px] font-medium text-gray-600 mb-1 block">
-                                                          Score
-                                                        </label>
-                                                        <input
-                                                          type="number"
-                                                          min="0"
-                                                          value={option.score}
-                                                          onChange={(e) =>
-                                                            updateOption(
+                                                      {subcategory.type === 'multi_response' ? (
+                                                        <button
+                                                          type="button"
+                                                          onClick={() =>
+                                                            removeOption(
                                                               catIndex,
                                                               subIndex,
-                                                              optionIndex,
-                                                              'score',
-                                                              e.target.value
+                                                              optionIndex
                                                             )
                                                           }
-                                                          className="w-full h-8 px-2 rounded border border-gray-300 text-xs focus:outline-none transition-all duration-200"
-                                                          placeholder="0"
-                                                        />
-                                                      </div>
-                                                      <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                          removeOption(
-                                                            catIndex,
-                                                            subIndex,
-                                                            optionIndex
-                                                          )
-                                                        }
-                                                        className="self-end h-8 px-2 rounded bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs transition-all duration-200"
-                                                      >
-                                                        <FiTrash2 />
-                                                      </button>
+                                                          className="self-end h-8 px-2 rounded bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs transition-all duration-200"
+                                                        >
+                                                          <FiTrash2 />
+                                                        </button>
+                                                      ) : (
+                                                        <div className="self-end h-8" />
+                                                      )}
                                                     </div>
                                                   )
                                                 )}

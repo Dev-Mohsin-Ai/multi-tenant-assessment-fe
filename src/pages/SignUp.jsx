@@ -59,7 +59,7 @@ const Signup = () => {
             <div className="flex flex-col md:flex-row justify-center items-stretch mx-auto max-w-5xl w-full mt-6 px-4 md:px-0">
 
                 {/* Left side - Image */}
-                <div className="w-full md:w-1/2 h-56 md:h-auto rounded-tl-lg md:rounded-tl-lg md:rounded-bl-lg overflow-hidden bg-[#0a1c2b]">
+                <div className="hidden md:block md:w-1/2 md:h-auto md:rounded-tl-lg md:rounded-bl-lg overflow-hidden bg-[#0a1c2b]">
                     <img
                         src={Logo}
                         alt="Brand Logo"
@@ -68,7 +68,7 @@ const Signup = () => {
                 </div>
 
                 {/* Right side */}
-                <div className="w-full md:w-1/2 p-6 md:p-8 bg-white flex flex-col justify-center border-[1.5px] border-[#E4E4E9] rounded-bl-lg md:rounded-bl-none rounded-tr-lg md:rounded-tr-lg rounded-br-lg">
+                <div className="w-full md:w-1/2 p-6 md:p-8 bg-white flex flex-col justify-center border-[1.5px] border-[#E4E4E9] rounded-lg md:rounded-tl-none md:rounded-bl-none md:rounded-tr-lg md:rounded-br-lg">
 
                     <h2 className="text-2xl md:text-3xl font-medium text-[#2F3037] mb-2 text-center py-3">
                         Sign up for a ScalePad account

@@ -17,6 +17,12 @@ const Login = () => {
   const [Error, setError] = useState({});
   const googleButtonRef = useRef(null);
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const allowedOrigins = (import.meta.env.VITE_GOOGLE_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const originAllowed =
+    allowedOrigins.length === 0 || allowedOrigins.includes(window.location.origin);
 
   const handleGoogleResponse = useCallback(async (response) => {
     if (!response?.credential) {
@@ -36,6 +42,7 @@ const Login = () => {
 
   useEffect(() => {
     if (!googleClientId || !googleButtonRef.current) return;
+    if (!originAllowed) return;
 
     const scriptId = "google-identity-services";
     const initializeGoogle = () => {
@@ -64,7 +71,7 @@ const Login = () => {
     script.onload = initializeGoogle;
     script.onerror = () => setError({ api: "Unable to load Google login" });
     document.body.appendChild(script);
-  }, [googleClientId, handleGoogleResponse]);
+  }, [googleClientId, handleGoogleResponse, originAllowed]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -110,7 +117,7 @@ const Login = () => {
         <div className="flex flex-col md:flex-row justify-center items-stretch mx-auto max-w-5xl w-full mt-6 px-4 md:px-0">
 
           {/* Left side - Image */}
-          <div className="w-full md:w-1/2 h-56 md:h-auto rounded-tl-lg md:rounded-tl-lg md:rounded-bl-lg overflow-hidden bg-[#0a1c2b]">
+          <div className="hidden md:block md:w-1/2 md:h-auto md:rounded-tl-lg md:rounded-bl-lg overflow-hidden bg-[#0a1c2b]">
             <img
               src={Logo}
               alt="Brand Logo"
@@ -119,7 +126,7 @@ const Login = () => {
           </div>
 
           {/* Right side */}
-          <div className="w-full md:w-1/2 p-6 md:p-8 bg-white flex flex-col gap-4 border-[1.5px] border-[#E4E4E9] rounded-bl-lg md:rounded-bl-none rounded-tr-lg md:rounded-tr-lg rounded-br-lg">
+          <div className="w-full md:w-1/2 p-6 md:p-8 bg-white flex flex-col gap-4 border-[1.5px] border-[#E4E4E9] rounded-lg md:rounded-tl-none md:rounded-bl-none md:rounded-tr-lg md:rounded-br-lg">
 
             <h2 className="text-2xl md:text-3xl font-medium text-[#2F3037] py-2 text-center">
               Sign In for a ScalePad account
@@ -129,7 +136,7 @@ const Login = () => {
               One toolkit powering modern MSPs
             </h3>
 
-            <div className="flex flex-col md:flex-row justify-center items-center gap-4 mt-2">
+            <div className="flex flex-row flex-wrap justify-center items-center gap-3 mt-2">
               <img src={LifeCycle} alt="Life Cycle" className="h-12 w-12" />
               <img src={Radar} alt="Radar" className="h-12 w-12" />
               <img src={Condition360} alt="Condition 360" className="h-12 w-12" />
@@ -168,7 +175,7 @@ const Login = () => {
                 <span className="flex-1 h-px bg-gray-200" />
               </div>
 
-              {googleClientId ? (
+              {googleClientId && originAllowed ? (
                 <div className="w-full flex justify-center">
                   <div className="w-full max-w-sm" ref={googleButtonRef} />
                 </div>
@@ -178,7 +185,7 @@ const Login = () => {
                   disabled
                   className="bg-gray-100 text-gray-400 py-3 rounded-xl w-full text-sm cursor-not-allowed"
                 >
-                  Google login not configured
+                  {googleClientId ? "Google login origin not allowed" : "Google login not configured"}
                 </button>
               )}
 

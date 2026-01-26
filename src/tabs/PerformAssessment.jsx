@@ -6,6 +6,7 @@ import {
     FiList,
     FiLayers,
     FiArrowLeft,
+    FiPlus,
     FiFileText,
     FiInfo,
     FiPaperclip,
@@ -141,6 +142,7 @@ const PerformAssessment = ({
     const [selections, setSelections] = useState({})
     const [savingItems, setSavingItems] = useState(() => new Set())
     const [isCompleting, setIsCompleting] = useState(false)
+    const [responseFilter, setResponseFilter] = useState('all')
 
     useEffect(() => {
         let isMounted = true
@@ -229,6 +231,79 @@ const PerformAssessment = ({
         [selections]
     )
 
+    const isCompleted = assessment?.status === 'completed'
+    const progressPercent = totalItems
+        ? Math.round((answeredCount / totalItems) * 100)
+        : 0
+
+    const scoreCandidate = Number(
+        assessment?.total_score ??
+        assessment?.totalScore ??
+        assessment?.score ??
+        ''
+    )
+    const overallScoreValue = Number.isFinite(scoreCandidate)
+        ? scoreCandidate > 0 && scoreCandidate <= 1
+            ? scoreCandidate * 100
+            : scoreCandidate
+        : null
+
+    const responseGroups = useMemo(() => {
+        const groups = {}
+        const normalizeKey = (label) =>
+            String(label || '')
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, '_')
+        categories.forEach((category) => {
+            category.subcategories.forEach((subcategory) => {
+                const selectedId =
+                    selections[subcategory.id] || subcategory.selectedResponseId
+                if (!selectedId) {
+                    return
+                }
+                const selectedOption = subcategory.responseOptions.find(
+                    (option) => option.id === selectedId
+                )
+                if (!selectedOption) {
+                    return
+                }
+                const key = normalizeKey(selectedOption.label)
+                if (!groups[key]) {
+                    groups[key] = []
+                }
+                groups[key].push({
+                    id: `${subcategory.id}-${selectedOption.id}`,
+                    title: subcategory.title,
+                    description: subcategory.description,
+                    responseLabel: selectedOption.label,
+                    responseDescription: selectedOption.description,
+                })
+            })
+        })
+        return groups
+    }, [categories, selections])
+
+    const responseGroupOrder = [
+        { key: 'at_risk', label: 'At Risk', header: 'bg-red-100 text-red-800', badge: 'bg-red-500 text-white' },
+        { key: 'needs_attention', label: 'Needs Attention', header: 'bg-orange-100 text-orange-800', badge: 'bg-orange-500 text-white' },
+        { key: 'acceptable_risk', label: 'Acceptable Risk', header: 'bg-amber-100 text-amber-800', badge: 'bg-amber-500 text-white' },
+        { key: 'satisfactory', label: 'Satisfactory', header: 'bg-green-100 text-green-800', badge: 'bg-green-500 text-white' },
+        { key: 'yes', label: 'Yes', header: 'bg-green-100 text-green-800', badge: 'bg-green-500 text-white' },
+        { key: 'no', label: 'No', header: 'bg-red-100 text-red-800', badge: 'bg-red-500 text-white' },
+        { key: 'not_applicable', label: 'Not Applicable', header: 'bg-purple-100 text-purple-800', badge: 'bg-purple-500 text-white' },
+        { key: 'unknown', label: 'Unknown', header: 'bg-gray-100 text-gray-700', badge: 'bg-gray-500 text-white' },
+    ]
+
+    const visibleGroups = responseGroupOrder
+        .filter((group) => responseGroups[group.key]?.length)
+        .filter((group) => responseFilter === 'all' || responseFilter === group.key)
+
+    const totalResponsesCount = Object.values(responseGroups).reduce(
+        (total, items) => total + items.length,
+        0
+    )
+
     useEffect(() => {
         if (onProgress && assessmentId) {
             onProgress({ assessmentId, answered: answeredCount, total: totalItems })
@@ -279,6 +354,9 @@ const PerformAssessment = ({
     }
 
     const handleSelect = async (subcategoryId, responseId) => {
+        if (isCompleted) {
+            return
+        }
         setSelections((prev) => ({
             ...prev,
             [subcategoryId]: responseId,
@@ -317,9 +395,16 @@ const PerformAssessment = ({
         setError('')
         try {
             await completeAssessment(assessmentId)
-            setAssessment((prev) => (prev ? { ...prev, status: 'completed' } : prev))
+            const completedAt = new Date().toISOString()
+            setAssessment((prev) =>
+                prev ? { ...prev, status: 'completed', completed_at: completedAt } : prev
+            )
             if (onComplete) {
-                onComplete(assessmentId, assessment)
+                onComplete(assessmentId, {
+                    ...assessment,
+                    status: 'completed',
+                    completed_at: completedAt,
+                })
             }
         } catch (error) {
             console.error('Unable to complete assessment:', error)
@@ -341,6 +426,13 @@ const PerformAssessment = ({
             return 'bg-green-100 text-green-800'
         }
         return 'bg-gray-100 text-gray-700'
+    }
+
+    const getStatusBadgeClasses = (status) => {
+        if (status === 'completed') {
+            return 'bg-green-100 text-green-700'
+        }
+        return 'bg-amber-100 text-amber-700'
     }
 
     if (loading) {
@@ -368,101 +460,218 @@ const PerformAssessment = ({
     }
 
     return (
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h2 className="text-xl font-semibold text-black">
-                        {assessment.title}
-                    </h2>
-                    {assessment.status && (
-                        <p className="mt-1 text-xs text-gray-500">
-                            Status: {assessment.status.replace(/_/g, ' ')}
-                        </p>
-                    )}
-                    {templateTitle && (
-                        <p className="mt-1 text-xs text-gray-500">
-                            Template: {templateTitle}
-                        </p>
-                    )}
-                    {(performedBy || formattedAssessmentDate) && (
-                        <p className="mt-1 text-xs text-gray-500">
-                            Performed by: {performedBy || 'Unknown'} {formattedAssessmentDate}
-                        </p>
-                    )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={handleComplete}
-                        disabled={isCompleting || assessment.status === 'completed'}
-                        className="px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2 text-sm disabled:opacity-60"
-                    >
-                        {assessment.status === 'completed'
-                            ? 'Assessment completed'
-                            : isCompleting
-                            ? 'Completing...'
-                            : 'Complete assessment'}
-                    </button>
-                    {onBack && (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="bg-gray-50 border-b border-gray-200 px-4 py-4 md:px-6">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
+                        <h2 className="text-2xl font-semibold text-black">
+                            {assessment.title}
+                        </h2>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                            {assessment.status && (
+                                <span
+                                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${getStatusBadgeClasses(
+                                        assessment.status
+                                    )}`}
+                                >
+                                    {assessment.status.replace(/_/g, ' ')}
+                                </span>
+                            )}
+                            {overallScoreValue !== null && overallScoreValue !== undefined && (
+                                <span className="inline-flex items-center rounded-full bg-orange-100 px-2.5 py-1 text-[11px] font-semibold text-orange-900">
+                                    Overall Score: {Number(overallScoreValue).toFixed(2)}%
+                                </span>
+                            )}
+                            {!isCompleted && (
+                                <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 border border-gray-200">
+                                    Progress: {progressPercent}%
+                                </span>
+                            )}
+                            {!isCompleted && (
+                                <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 border border-gray-200">
+                                    Answers: {answeredCount}/{totalItems || 0}
+                                </span>
+                            )}
+                        </div>
+                        {templateTitle && (
+                            <p className="mt-2 text-xs text-gray-500">
+                                Template: {templateTitle}
+                            </p>
+                        )}
+                        {(performedBy || formattedAssessmentDate) && (
+                            <p className="mt-1 text-xs text-gray-500">
+                                Performed by: {performedBy || 'Unknown'} {formattedAssessmentDate}
+                            </p>
+                        )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
                         <button
                             type="button"
-                            onClick={onBack}
-                            className="text-sm text-gray-600 hover:text-gray-900 cursor-pointer inline-flex items-center gap-2"
+                            onClick={handleComplete}
+                            disabled={isCompleting || isCompleted}
+                            className="px-4 py-2 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2 text-sm font-medium disabled:opacity-60"
                         >
-                            <FiArrowLeft className="text-base" />
-                            Back to assessments
+                            {isCompleted
+                                ? 'Assessment completed'
+                                : isCompleting
+                                ? 'Completing...'
+                                : 'Complete assessment'}
                         </button>
+                        <button className="px-4 py-2 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-2 text-sm font-medium">
+                            <FiDownload className="text-base" />
+                            Download report
+                        </button>
+                        {onBack && (
+                            <button
+                                type="button"
+                                onClick={onBack}
+                                className="text-sm text-gray-600 hover:text-gray-900 cursor-pointer inline-flex items-center gap-2"
+                            >
+                                <FiArrowLeft className="text-base" />
+                                Back to assessments
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {!isCompleted && (
+                <div className="px-4 py-4 md:px-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-sm bg-white">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={toggleAllSections}
+                            className="px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2"
+                        >
+                            <FiLayers className="text-base" />
+                            {allSectionsExpanded ? 'Collapse all categories' : 'Expand all categories'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={toggleAllItems}
+                            className="px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2"
+                        >
+                            <FiList className="text-base" />
+                            {allItemsExpanded ? 'Collapse all items' : 'Expand all items'}
+                        </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            className="px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2"
+                        >
+                            Show comparison
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {isCompleted && (
+                <div className="px-4 py-6 md:px-6 bg-gray-50 space-y-6">
+                    <div className="border-t border-gray-200 pt-4">
+                        <p className="text-sm font-semibold text-gray-800">Include responses</p>
+                        <div className="mt-3 inline-flex items-center gap-2">
+                            <select
+                                value={responseFilter}
+                                onChange={(e) => setResponseFilter(e.target.value)}
+                                className="h-10 rounded-md border border-gray-300 bg-white px-3 text-sm font-medium text-gray-800"
+                            >
+                                <option value="all">Responses ({totalResponsesCount})</option>
+                                {responseGroupOrder
+                                    .filter((group) => responseGroups[group.key]?.length)
+                                    .map((group) => (
+                                        <option key={group.key} value={group.key}>
+                                            {group.label} ({responseGroups[group.key].length})
+                                        </option>
+                                    ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    {visibleGroups.length === 0 ? (
+                        <div className="rounded-md border border-dashed border-gray-300 bg-white px-4 py-6 text-sm text-gray-500">
+                            No responses available to display.
+                        </div>
+                    ) : (
+                        visibleGroups.map((group) => (
+                            <div
+                                key={group.key}
+                                className="rounded-lg border border-gray-200 overflow-hidden bg-white"
+                            >
+                                <div className={`px-4 py-3 flex items-center gap-3 font-semibold ${group.header}`}>
+                                    <span>{group.label}</span>
+                                    <span className={`inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs ${group.badge}`}>
+                                        {responseGroups[group.key].length}
+                                    </span>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-225 w-full text-sm">
+                                        <thead>
+                                            <tr className="text-left text-xs text-gray-600 border-b border-gray-200">
+                                                <th className="w-10 px-4 py-2">
+                                                    <input type="checkbox" className="h-4 w-4" />
+                                                </th>
+                                                <th className="px-4 py-2">Title &amp; Description</th>
+                                                <th className="px-4 py-2">Response</th>
+                                                <th className="px-4 py-2 text-center">Owner</th>
+                                                <th className="px-4 py-2 text-center">Notes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {responseGroups[group.key].map((item) => (
+                                                <tr
+                                                    key={item.id}
+                                                    className="border-b border-gray-200 last:border-b-0"
+                                                >
+                                                    <td className="px-4 py-3">
+                                                        <input type="checkbox" className="h-4 w-4" />
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="font-semibold text-gray-900">
+                                                            {item.title}
+                                                        </div>
+                                                        {item.description && (
+                                                            <p className="text-xs text-gray-600 mt-1">
+                                                                {item.description}
+                                                            </p>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="font-semibold text-gray-900">
+                                                            {item.responseLabel}
+                                                        </div>
+                                                        <p className="text-xs text-gray-600 mt-1">
+                                                            {item.responseDescription || 'No description provided.'}
+                                                        </p>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center text-gray-500">-</td>
+                                                    <td className="px-4 py-3 text-center text-gray-500">-</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ))
                     )}
                 </div>
-            </div>
+            )}
 
-            <div className="mt-4 flex items-center justify-between text-sm">
-                <div className="flex flex-wrap items-center gap-3">
-                    <button
-                        type="button"
-                        onClick={toggleAllSections}
-                        className="px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2"
-                    >
-                        <FiLayers className="text-base" />
-                        {allSectionsExpanded ? 'Collapse all categories' : 'Expand all categories'}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={toggleAllItems}
-                        className="px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2"
-                    >
-                        <FiList className="text-base" />
-                        {allItemsExpanded ? 'Collapse all items' : 'Expand all items'}
-                    </button>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        className="px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2"
-                    >
-                        Show comparison
-                    </button>
-                    <button className="px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2">
-                        <FiDownload className="text-base" />
-                        Download report
-                    </button>
-                </div>
-            </div>
-
-            <div className="mt-6 space-y-4">
-                {categories.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
-                        This assessment has no categories.
-                    </div>
-                ) : (
-                    categories.map((section) => {
-                        const isOpen = expandedSections.has(section.id)
-                        return (
+            {!isCompleted && (
+                <div className="px-4 pb-6 md:px-6 space-y-4">
+                    {categories.length === 0 ? (
+                        <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
+                            This assessment has no categories.
+                        </div>
+                    ) : (
+                        categories.map((section) => {
+                            const isOpen = expandedSections.has(section.id)
+                            return (
                             <div key={section.id} className="rounded-md border border-gray-200">
-                                <button
+                                    <button
                                     type="button"
                                     onClick={() => toggleSection(section.id)}
-                                    className="w-full text-left p-4 bg-gray-100 hover:bg-gray-200 flex items-start justify-between gap-4"
+                                    className="w-full text-left p-4 bg-gray-100 hover:bg-gray-200 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4"
                                 >
                                     <div className="flex items-start gap-3">
                                         <span className="mt-1 text-gray-600">
@@ -502,7 +711,7 @@ const PerformAssessment = ({
                                                                     return next
                                                                 })
                                                             }}
-                                                            className="w-full text-left px-4 py-3 bg-white hover:bg-gray-50 flex items-start justify-between gap-4"
+                                                            className="w-full text-left px-4 py-3 bg-white hover:bg-gray-50 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4"
                                                         >
                                                             <div className="flex items-start gap-3">
                                                                 <span className="mt-1 text-gray-600">
@@ -554,10 +763,10 @@ const PerformAssessment = ({
                                                                         {item.responseOptions.map((option) => (
                                                                             <label
                                                                                 key={`${item.id}-${option.id}`}
-                                                                                className="grid grid-cols-[32px_auto_1fr] items-start gap-4 px-4 py-3 text-sm"
+                                                                                className="grid grid-cols-1 sm:grid-cols-[32px_auto_1fr] items-start gap-4 px-4 py-3 text-sm"
                                                                             >
                                                                                 <span className="pt-1">
-                                                                                    <input
+                                                                                <input
                                                                                         type="radio"
                                                                                         name={`response-${item.id}`}
                                                                                         className="h-4 w-4"
@@ -565,7 +774,7 @@ const PerformAssessment = ({
                                                                                         onChange={() => {
                                                                                             handleSelect(item.id, option.id)
                                                                                         }}
-                                                                                        disabled={isSaving}
+                                                                                        disabled={isSaving || isCompleted}
                                                                                     />
                                                                                 </span>
                                                                                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${getBadgeClasses(option.label)}`}>
@@ -591,6 +800,7 @@ const PerformAssessment = ({
                     })
                 )}
             </div>
+            )}
         </div>
     )
 }

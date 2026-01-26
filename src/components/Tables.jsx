@@ -2,8 +2,8 @@ import React from 'react';
 
 const Table = ({ columns, data, onRowClick }) => {
     return (
-        <div className="pt-3">
-            <table className="w-full border border-gray-300 border-collapse">
+        <div className="pt-3 overflow-x-auto">
+            <table className="w-full min-w-180 border border-gray-300 border-collapse">
 
                 {/* Header */}
                 <thead className="font-bold">

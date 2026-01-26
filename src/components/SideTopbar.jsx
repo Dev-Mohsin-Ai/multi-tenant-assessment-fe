@@ -44,15 +44,33 @@ const SideTopbar = ({
             <TopBar activeLabel={label} clientName={clientName} />
 
             <div className="flex flex-1 min-h-0">
-                <Sidebar
-                    items={resolvedItems}
-                    activeId={resolvedActiveId}
-                    onSelect={handleSelect}
-                />
+                <div className="hidden md:block">
+                    <Sidebar
+                        items={resolvedItems}
+                        activeId={resolvedActiveId}
+                        onSelect={handleSelect}
+                    />
+                </div>
 
                 <main
-                    className={`flex-1 px-7 pt-5 overflow-auto border border-[rgba(0,0,0,0.24)] rounded-tl-lg bg-[rgb(243,243,247)] ${contentClassName}`.trim()}
+                    className={`flex-1 px-4 md:px-7 pt-4 md:pt-5 overflow-auto border border-[rgba(0,0,0,0.24)] rounded-tl-lg bg-[rgb(243,243,247)] ${contentClassName}`.trim()}
                 >
+                    <div className="flex md:hidden items-center gap-2 pb-3 border-b border-gray-200 mb-4 overflow-x-auto">
+                        {resolvedItems.map((item) => (
+                            <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => handleSelect(item.id)}
+                                className={`shrink-0 px-3 py-1.5 rounded-md text-xs font-medium border ${
+                                    item.id === resolvedActiveId
+                                        ? 'border-[rgb(5,117,204)] bg-[rgb(236,245,255)] text-[rgb(5,117,204)]'
+                                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                                }`}
+                            >
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
                     {content}
                 </main>
             </div>
