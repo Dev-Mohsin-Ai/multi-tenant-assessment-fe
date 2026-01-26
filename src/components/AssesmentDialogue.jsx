@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Select from 'react-select'
 import SearchTemplate from './SearchTemplate'
 import { createOrganization, getOrganizations } from '../services/organizationService'
-import { deleteTemplate, getTemplates } from '../services/templateService'
+import { getTemplates } from '../services/templateService'
 
 const AssesmentDialogue = ({
   onClose,
@@ -27,7 +27,6 @@ const AssesmentDialogue = ({
   const [loadingOrganizations, setLoadingOrganizations] = useState(false)
   const [loadingTemplates, setLoadingTemplates] = useState(false)
   const [creatingOrganization, setCreatingOrganization] = useState(false)
-  const [deletingTemplate, setDeletingTemplate] = useState(false)
   const [error, setError] = useState('')
   const isOrganizationLocked = Boolean(organization)
 
@@ -189,40 +188,6 @@ const AssesmentDialogue = ({
     }
   }
 
-  const handleDeleteTemplate = async () => {
-    if (!selectedTemplate) {
-      setError('Select a template to delete')
-      return
-    }
-
-    const templateId = Number(selectedTemplate.value)
-    if (Number.isNaN(templateId)) {
-      setError('Select a valid template to delete')
-      return
-    }
-
-    const confirmDelete = window.confirm('Delete this template? This will mark it inactive.')
-    if (!confirmDelete) {
-      return
-    }
-
-    setDeletingTemplate(true)
-    setError('')
-    try {
-      await deleteTemplate(templateId)
-      setTemplates((prev) =>
-        prev.filter((template) => {
-          const id = template.id ?? template.template_id ?? template.templateId
-          return Number(id) !== templateId
-        })
-      )
-      setSelectedTemplate(null)
-    } catch (err) {
-      setError('Unable to delete template')
-    } finally {
-      setDeletingTemplate(false)
-    }
-  }
 
   const handleNext = () => {
     const resolvedOrg = selectedOrg || lockedOption
@@ -335,16 +300,6 @@ const AssesmentDialogue = ({
                 isLoading={loadingTemplates}
                 placeholder="Select a template..."
               />
-            </div>
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleDeleteTemplate}
-                disabled={deletingTemplate || !selectedTemplate}
-                className="h-8 px-3 rounded-md border border-red-200 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
-              >
-                {deletingTemplate ? 'Deleting...' : 'Delete template'}
-              </button>
             </div>
             {!loadingTemplates && !templatesAvailable && (
               <p className="mt-2 text-xs text-gray-500">

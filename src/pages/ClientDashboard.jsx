@@ -18,6 +18,7 @@ const ClientDashboard = () => {
   const [error, setError] = useState('')
   const [openDialog, setOpenDialog] = useState(false)
   const [creatingAssessment, setCreatingAssessment] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => {
     if (!organizationId) {
@@ -31,9 +32,10 @@ const ClientDashboard = () => {
       setLoading(true)
       setError('')
       try {
+        const filterValue = statusFilter === 'all' ? null : statusFilter
         const [orgData, assessmentData] = await Promise.all([
           getOrganizationById(organizationId),
-          getOrganizationAssessments(organizationId),
+          getOrganizationAssessments(organizationId, filterValue),
         ])
         if (!isMounted) {
           return
@@ -57,7 +59,8 @@ const ClientDashboard = () => {
 
     const refreshAssessments = async () => {
       try {
-        const assessmentData = await getOrganizationAssessments(organizationId)
+        const filterValue = statusFilter === 'all' ? null : statusFilter
+        const assessmentData = await getOrganizationAssessments(organizationId, filterValue)
         if (!isMounted) {
           return
         }
@@ -85,14 +88,22 @@ const ClientDashboard = () => {
       clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
     }
-  }, [navigate, organizationId])
+  }, [navigate, organizationId, statusFilter])
 
   const getAssessmentId = (assessment) =>
     assessment.id || assessment.assessment_id || assessment.assessmentId
 
   const rows = useMemo(
     () =>
-      assessments.map((assessment) => {
+      assessments
+        .filter((assessment) => {
+          if (statusFilter === 'all') {
+            return true
+          }
+          const status = assessment.status || 'in_progress'
+          return status === statusFilter
+        })
+        .map((assessment) => {
         const id = getAssessmentId(assessment)
         const categories =
           assessment.categories ||
@@ -145,6 +156,20 @@ const ClientDashboard = () => {
           (totalItems ? `${Math.round((answered / totalItems) * 100)}%` : '0%')
         const score = assessment.total_score ?? assessment.score ?? '-'
         const status = assessment.status || 'in_progress'
+        const updatedAtRaw =
+          assessment.updated_at ||
+          assessment.updatedAt ||
+          assessment.completed_at ||
+          assessment.completedAt ||
+          assessment.created_at ||
+          assessment.createdAt
+        const updatedAt = updatedAtRaw
+          ? new Date(updatedAtRaw).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+            })
+          : '-'
         return {
           id,
           title: assessment.title || assessment.name || `Assessment ${id}`,
@@ -153,9 +178,10 @@ const ClientDashboard = () => {
           items: totalItems,
           answers: answered,
           completion,
+          updatedAt,
         }
       }),
-    [assessments]
+    [assessments, statusFilter]
   )
 
   const columns = [
@@ -169,6 +195,7 @@ const ClientDashboard = () => {
     { key: 'items', label: 'Items' },
     { key: 'answers', label: 'Answers' },
     { key: 'completion', label: 'Completion' },
+    { key: 'updatedAt', label: 'Updated' },
     {
       key: 'action',
       label: 'Action',
@@ -284,6 +311,30 @@ const ClientDashboard = () => {
               {error}
             </p>
           )}
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs font-medium text-gray-600">Filter status</div>
+            <div className="flex items-center gap-2">
+              {['all', 'in_progress', 'completed'].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setStatusFilter(value)}
+                  className={`h-8 rounded-md px-3 text-xs font-medium border ${
+                    statusFilter === value
+                      ? 'border-[rgb(5,117,204)] bg-[rgb(236,245,255)] text-[rgb(5,117,204)]'
+                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {value === 'all'
+                    ? 'All'
+                    : value === 'in_progress'
+                    ? 'In progress'
+                    : 'Completed'}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="mt-6">
             {loading ? (

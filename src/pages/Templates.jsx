@@ -515,7 +515,7 @@ const Templates = () => {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search templates..."
-                    className="w-full h-12 pl-12 pr-4 rounded-xl border border-gray-300 bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                    className="w-full h-12 pl-12 pr-4 rounded-md border border-gray-300 bg-white focus:outline-none transition-all duration-200"
                   />
                   <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xl" />
                 </div>
@@ -610,7 +610,7 @@ const Templates = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, title: e.target.value }))
                       }
-                      className="w-full h-12 px-4 rounded-lg border border-gray-300 text-lg font-semibold focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      className="w-full h-12 px-4 rounded-md border border-gray-300 text-lg font-semibold focus:outline-none transition-all duration-200"
                       placeholder="Enter template name..."
                     />
                   </div>
@@ -747,7 +747,7 @@ const Templates = () => {
                                     onChange={(e) =>
                                       updateCategory(catIndex, 'title', e.target.value)
                                     }
-                                    className="w-full h-10 px-3 rounded-lg border border-gray-300 bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                    className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none transition-all duration-200"
                                     placeholder="Category title"
                                   />
                                 </div>
@@ -761,7 +761,7 @@ const Templates = () => {
                                     onChange={(e) =>
                                       updateCategory(catIndex, 'description', e.target.value)
                                     }
-                                    className="w-full h-10 px-3 rounded-lg border border-gray-300 bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                    className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none transition-all duration-200"
                                     placeholder="Description"
                                   />
                                 </div>
@@ -777,7 +777,7 @@ const Templates = () => {
                                     onChange={(e) =>
                                       updateCategory(catIndex, 'weight_percentage', e.target.value)
                                     }
-                                    className="w-full h-10 px-3 rounded-lg border border-gray-300 bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                    className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none transition-all duration-200"
                                     placeholder="0-100"
                                   />
                                 </div>
@@ -883,7 +883,7 @@ const Templates = () => {
                                                         e.target.value
                                                       )
                                                     }
-                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
                                                     placeholder="Subcategory title"
                                                   />
                                                 </div>
@@ -902,7 +902,7 @@ const Templates = () => {
                                                         e.target.value
                                                       )
                                                     }
-                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
                                                     placeholder="Description"
                                                   />
                                                 </div>
@@ -923,7 +923,7 @@ const Templates = () => {
                                                         e.target.value
                                                       )
                                                     }
-                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
                                                     placeholder="0-100"
                                                   />
                                                 </div>
@@ -945,7 +945,7 @@ const Templates = () => {
                                                         e.target.value
                                                       )
                                                     }
-                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
                                                     placeholder="Scoring instructions"
                                                   />
                                                 </div>
@@ -964,7 +964,7 @@ const Templates = () => {
                                                         e.target.value
                                                       )
                                                     }
-                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
                                                     placeholder="Remediation tips"
                                                   />
                                                 </div>
@@ -983,7 +983,7 @@ const Templates = () => {
                                                         e.target.value
                                                       )
                                                     }
-                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                                    className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
                                                     placeholder="yes_no"
                                                   />
                                                 </div>
@@ -1045,7 +1045,7 @@ const Templates = () => {
                                                               e.target.value
                                                             )
                                                           }
-                                                          className="w-full h-8 px-2 rounded border border-gray-300 text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                                          className="w-full h-8 px-2 rounded border border-gray-300 text-xs focus:outline-none transition-all duration-200"
                                                           placeholder="satisfactory"
                                                         />
                                                       </div>
@@ -1065,7 +1065,7 @@ const Templates = () => {
                                                               e.target.value
                                                             )
                                                           }
-                                                          className="w-full h-8 px-2 rounded border border-gray-300 text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                                          className="w-full h-8 px-2 rounded border border-gray-300 text-xs focus:outline-none transition-all duration-200"
                                                           placeholder="Description"
                                                         />
                                                       </div>
@@ -1086,7 +1086,7 @@ const Templates = () => {
                                                               e.target.value
                                                             )
                                                           }
-                                                          className="w-full h-8 px-2 rounded border border-gray-300 text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                                          className="w-full h-8 px-2 rounded border border-gray-300 text-xs focus:outline-none transition-all duration-200"
                                                           placeholder="0"
                                                         />
                                                       </div>

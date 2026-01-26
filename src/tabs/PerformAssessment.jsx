@@ -46,17 +46,25 @@ const normalizeAssessment = (data) => {
                 subcategory.responses ||
                 subcategory.options
             )
-            const responseOptions = rawOptions.map((option, optionIndex) => ({
-                id: option.id ?? `${subcategoryId}-option-${optionIndex}`,
-                label:
-                    option.label ||
-                    option.title ||
-                    option.name ||
-                    option.value ||
-                    option.response ||
-                    `Option ${optionIndex + 1}`,
-                description: option.description || option.text || option.details || '',
-            }))
+            const formatLabel = (value) =>
+                String(value || '')
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, (char) => char.toUpperCase())
+
+            const responseOptions = rawOptions.map((option, optionIndex) => {
+                const responseType =
+                    option.response_type || option.responseType || option.type || option.value
+                return {
+                    id: option.id ?? `${subcategoryId}-option-${optionIndex}`,
+                    label:
+                        option.label ||
+                        option.title ||
+                        option.name ||
+                        (responseType ? formatLabel(responseType) : null) ||
+                        `Option ${optionIndex + 1}`,
+                    description: option.description || option.text || option.details || '',
+                }
+            })
 
             return {
                 id: subcategoryId,
