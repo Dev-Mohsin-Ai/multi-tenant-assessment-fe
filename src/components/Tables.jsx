@@ -1,6 +1,6 @@
 import React from 'react';
 
-const Table = ({ columns, data }) => {
+const Table = ({ columns, data, onRowClick }) => {
     return (
         <div className="pt-3">
             <table className="w-full border border-gray-300 border-collapse">
@@ -22,7 +22,11 @@ const Table = ({ columns, data }) => {
                 {/* Body */}
                 <tbody>
                     {data.map((row, rowIndex) => (
-                        <tr key={rowIndex} className="odd:bg-gray-100 even:bg-white">
+                        <tr
+                            key={rowIndex}
+                            className={`odd:bg-gray-100 even:bg-white ${onRowClick ? "cursor-pointer hover:bg-gray-200" : ""}`}
+                            onClick={onRowClick ? () => onRowClick(row) : undefined}
+                        >
                             {columns.map((col) => {
                                 const cell = col.render ? col.render(row[col.key], row) : row[col.key]
                                 return (

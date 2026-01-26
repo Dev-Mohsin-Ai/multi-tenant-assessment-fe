@@ -3,7 +3,7 @@ import { IoMdStarOutline } from "react-icons/io"
 import { FaChevronDown } from 'react-icons/fa'
 import { IoIosInformationCircle } from "react-icons/io";
 
-const TopBar = ({ activeLabel }) => {
+const TopBar = ({ activeLabel, clientName = 'Mia Labs' }) => {
     const [hoverInfo, setHoverInfo] = useState(false);
 
     const HandleMouseEnter = () => {
@@ -21,7 +21,7 @@ const TopBar = ({ activeLabel }) => {
                 <div className="flex items-center gap-3 flex-wrap">
 
                     <h1 className="font-bold text-xl">
-                        Mia Labs
+                        {clientName}
                     </h1>
 
                     <IoMdStarOutline className='bg-[rgb(245,245,245)] cursor-pointer border border-gray-200 rounded-sm text-lg' />

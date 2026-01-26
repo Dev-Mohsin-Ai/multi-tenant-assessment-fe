@@ -12,28 +12,28 @@ const Navbar = () => {
             <div className="flex gap-8 text-[rgb(182,183,195)]">
 
                 {/* Home */}
-                <Link to="/dashboard" className="flex items-center gap-2 hover:text-white">
+                <Link to="/clients" className="flex items-center gap-2 hover:text-white">
                     <img src={Home} alt="Home" className="h-4 w-4" />
                     <span>Home</span>
                     <FaChevronDown className="text-xs" />
                 </Link>
 
                 {/* Assets */}
-                <Link to="/dashboard" className="flex items-center gap-2 hover:text-white">
+                <Link to="/clients" className="flex items-center gap-2 hover:text-white">
                     <img src={Assets} alt="Assets" className="h-4 w-4" />
                     <span>Assets</span>
                     <FaChevronDown className="text-xs" />
                 </Link>
 
                 {/* Strategy */}
-                <Link to="/dashboard" className="flex items-center gap-2 hover:text-white">
+                <Link to="/clients" className="flex items-center gap-2 hover:text-white">
                     <img src={Strategy} alt="Strategy" className="h-4 w-4" />
                     <span>Strategy</span>
                     <FaChevronDown className="text-xs" />
                 </Link>
 
                 {/* Marketplace */}
-                <Link to="/dashboard" className="flex items-center gap-2 hover:text-white">
+                <Link to="/clients" className="flex items-center gap-2 hover:text-white">
                     <img src={Marketplace} alt="Marketplace" className="h-4 w-4" />
                     <span>Marketplace</span>
                     <FaChevronDown className="text-xs" />
