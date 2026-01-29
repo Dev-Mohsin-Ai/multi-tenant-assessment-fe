@@ -734,21 +734,21 @@ const PerformAssessment = ({
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-center gap-2 text-gray-400">
-                                                                <button type="button" className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600" aria-label="Document">
+                                                                <span className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600 inline-flex items-center justify-center" aria-label="Document">
                                                                     <FiFileText className="mx-auto" />
-                                                                </button>
-                                                                <button type="button" className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600" aria-label="Info">
+                                                                </span>
+                                                                <span className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600 inline-flex items-center justify-center" aria-label="Info">
                                                                     <FiInfo className="mx-auto" />
-                                                                </button>
-                                                                <button type="button" className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600" aria-label="Attachment">
+                                                                </span>
+                                                                <span className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600 inline-flex items-center justify-center" aria-label="Attachment">
                                                                     <FiPaperclip className="mx-auto" />
-                                                                </button>
-                                                                <button type="button" className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600" aria-label="Comments">
+                                                                </span>
+                                                                <span className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600 inline-flex items-center justify-center" aria-label="Comments">
                                                                     <FiMessageSquare className="mx-auto" />
-                                                                </button>
-                                                                <button type="button" className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600" aria-label="Settings">
+                                                                </span>
+                                                                <span className="h-8 w-8 rounded-md border border-gray-200 bg-white hover:text-gray-600 inline-flex items-center justify-center" aria-label="Settings">
                                                                     <FiSettings className="mx-auto" />
-                                                                </button>
+                                                                </span>
                                                             </div>
                                                         </button>
 
