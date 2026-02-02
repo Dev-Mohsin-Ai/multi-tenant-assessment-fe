@@ -2,9 +2,11 @@ import React, { useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import DashboardHeader from './DashboardHeader'
 import SideTopbar from './SideTopbar'
-import RoadmapIcon from '../assets/icons/Roadmap.svg'
-import ListIcon from '../assets/icons/List.svg'
-import StrategyIcon from '../assets/icons/Strategy.svg'
+import ListIcon from '../../assets/icons/List.svg'
+import { MdAssessment } from "react-icons/md";
+import { FaUsers } from "react-icons/fa6";
+import { SiRoadmapdotsh } from 'react-icons/si'
+import { HiTemplate } from "react-icons/hi";
 
 const WorkspaceLayout = ({
   children,
@@ -20,9 +22,10 @@ const WorkspaceLayout = ({
 
   const navItems = useMemo(
     () => [
-      { id: 'clients', label: 'Clients', icon: ListIcon, path: clientsPath },
-      { id: 'assessments', label: 'Assessments', icon: RoadmapIcon, path: assessmentsPath },
-      { id: 'templates', label: 'Templates', icon: StrategyIcon, path: templatesPath },
+      { id: 'clients', label: 'Clients', icon: <FaUsers/>, path: clientsPath },
+      { id: 'assessments', label: 'Assessments', icon: <MdAssessment />, iconSize: 26, path: assessmentsPath },
+      { id: 'roadmap', label: 'Roadmap', icon: <SiRoadmapdotsh />, path: '/roadmap' },
+      { id: 'templates', label: 'Templates', icon: <HiTemplate />, iconSize: 26, path: templatesPath },
     ],
     [assessmentsPath, clientsPath, templatesPath]
   )

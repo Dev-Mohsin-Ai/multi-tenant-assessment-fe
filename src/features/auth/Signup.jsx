@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import LoginLogo from '../assets/LoginLogo.png'
-import Logo from '../assets/Logo.png'
-import Input from '../components/Input'
+import LoginLogo from '../../assets/LoginLogo.png'
+import Logo from '../../assets/Logo.png'
+import Input from '../../shared/components/Input'
 
 const Signup = () => {
     const [Company, setCompany] = useState("")

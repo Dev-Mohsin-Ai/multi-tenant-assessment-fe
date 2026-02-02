@@ -1,6 +1,6 @@
 import React from 'react'
-import AllClients from '../components/AllClients'
-import WorkspaceLayout from '../components/WorkspaceLayout'
+import AllClients from './components/AllClients'
+import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 
 const Clients = () => {
     return (

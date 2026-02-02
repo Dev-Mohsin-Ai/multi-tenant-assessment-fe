@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Select from 'react-select'
 import SearchTemplate from './SearchTemplate'
-import { createOrganization, getOrganizations } from '../services/organizationService'
-import { getTemplates } from '../services/templateService'
+import { createOrganization, getOrganizations } from '../../../shared/services/organizationService'
+import { getTemplates } from '../../../shared/services/templateService'
 
 const AssesmentDialogue = ({
   onClose,

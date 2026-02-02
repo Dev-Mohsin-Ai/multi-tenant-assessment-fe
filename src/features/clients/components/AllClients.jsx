@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import Table from './Tables'
-import { createOrganization, getOrganizations } from '../services/organizationService'
+import Table from '../../../shared/components/Tables'
+import { createOrganization, getOrganizations } from '../../../shared/services/organizationService'
 
 const AllClients = () => {
   const navigate = useNavigate()

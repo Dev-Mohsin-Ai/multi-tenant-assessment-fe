@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import LoginLogo from "../assets/LoginLogo.png";
-import Logo from "../assets/Logo.png";
-import Input from "../components/Input";
-import LifeCycle from "../assets/icons/LifeCycle.svg";
-import Radar from "../assets/icons/Radar.svg";
-import Condition360 from "../assets/icons/Condition360.svg";
-import ControlMap from "../assets/icons/ControlMap.svg";
-import Quoter from "../assets/icons/Quoter.svg";
+import LoginLogo from "../../assets/LoginLogo.png";
+import Logo from "../../assets/Logo.png";
+import Input from "../../shared/components/Input";
+import LifeCycle from "../../assets/icons/LifeCycle.svg";
+import Radar from "../../assets/icons/Radar.svg";
+import Condition360 from "../../assets/icons/Condition360.svg";
+import ControlMap from "../../assets/icons/ControlMap.svg";
+import Quoter from "../../assets/icons/Quoter.svg";
 import { Link, useNavigate } from "react-router-dom";
-import { googleLogin, login } from "../services/authService";
+import { googleLogin, login } from "../../shared/services/authService";
 
 const Login = () => {
   const navigate = useNavigate();

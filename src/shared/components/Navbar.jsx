@@ -1,8 +1,8 @@
 import React from 'react'
-import Home from '../assets/icons/Home.svg'
-import Assets from '../assets/icons/Assets.svg'
-import Strategy from '../assets/icons/Strategy.svg'
-import Marketplace from '../assets/icons/Marketplace.svg'
+import Home from '../../assets/icons/Home.svg'
+import Assets from '../../assets/icons/Assets.svg'
+import Strategy from '../../assets/icons/Strategy.svg'
+import Marketplace from '../../assets/icons/Marketplace.svg'
 import { FaChevronDown } from 'react-icons/fa'
 import { Link } from 'react-router-dom'
 

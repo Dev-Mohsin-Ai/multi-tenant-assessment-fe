@@ -1,6 +1,6 @@
 import React from 'react';
-import LifeCycle from '../assets/icons/LifeCycle.svg';
-import TreeDeciduous from '../assets/icons/TreeDeciduous.svg';
+import LifeCycle from '../../assets/icons/LifeCycle.svg';
+import TreeDeciduous from '../../assets/icons/TreeDeciduous.svg';
 import { FaGear } from "react-icons/fa6";
 import { FaBell, FaRegStar, FaSearch } from "react-icons/fa";
 import Navbar from './Navbar';

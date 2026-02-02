@@ -1,12 +1,13 @@
 import React from 'react'
-import Header from './components/Header'
-import Signup from './pages/Signup'
-import Login from './pages/Login'
+import Header from '../shared/components/Header'
+import Signup from '../features/auth/Signup'
+import Login from '../features/auth/Login'
 import { Route, Routes, Navigate, useLocation } from 'react-router-dom'
-import Clients from './pages/Clients'
-import ClientDashboard from './pages/ClientDashboard'
-import AssessmentPage from './pages/AssessmentPage'
-import Templates from './pages/Templates'
+import Clients from '../features/clients/Clients'
+import ClientDashboard from '../features/clients/ClientDashboard'
+import AssessmentPage from '../features/assessments/AssessmentPage'
+import TemplatesPage from '../features/templates/TemplatesPage'
+import RoadmapPage from '../features/roadmap/RoadmapPage'
 
 const RequireAuth = ({ children }) => {
   const token = localStorage.getItem('token')
@@ -83,7 +84,15 @@ const App = () => {
           path='/templates'
           element={
             <RequireAuth>
-              <Templates />
+              <TemplatesPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path='/roadmap'
+          element={
+            <RequireAuth>
+              <RoadmapPage />
             </RequireAuth>
           }
         />

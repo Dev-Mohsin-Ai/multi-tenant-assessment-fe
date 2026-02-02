@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import PerformAssessment from '../tabs/PerformAssessment'
-import WorkspaceLayout from '../components/WorkspaceLayout'
+import PerformAssessment from './perform-assessment/PerformAssessment'
+import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 
 const AssessmentPage = () => {
   const { assessmentId } = useParams()

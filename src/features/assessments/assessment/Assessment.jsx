@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import Select from 'react-select'
-import { FaPlus, FaGear } from "react-icons/fa6"
-import Tables from '../components/Tables'
-import { RiFileListLine } from "react-icons/ri"
-import AssesmentDialogue from "../components/AssesmentDialogue"
-import PerformAssessment from './PerformAssessment'
-import { getOrganizationAssessments, getOrganizations } from '../services/organizationService'
-import { createAssessment } from '../services/assessmentService'
+import AssessmentList from './AssessmentList'
+import AssessmentToolbar from './AssessmentToolbar'
+import PerformAssessment from '../perform-assessment/PerformAssessment'
+import {
+  getOrganizationAssessments,
+  getOrganizations,
+} from '../../../shared/services/organizationService'
+import { createAssessment } from '../../../shared/services/assessmentService'
 
 const Assessment = () => {
   const [open, setOpen] = useState(false)
@@ -44,7 +44,7 @@ const Assessment = () => {
       const data = await getOrganizationAssessments(organizationId)
       const list = Array.isArray(data) ? data : data?.assessments || []
       setAssessments(list)
-    } catch (err) {
+    } catch {
       setError('Unable to load assessments')
     } finally {
       setLoadingAssessments(false)
@@ -68,7 +68,7 @@ const Assessment = () => {
           ? list.find((org) => String(org.id) === String(storedOrgId))
           : list[0]
         setActiveOrganization(match || null)
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setError('Unable to load organizations')
         }
@@ -124,7 +124,7 @@ const Assessment = () => {
       setActiveAssessmentId(assessmentId)
       setShowPerform(true)
       setOpen(false)
-    } catch (err) {
+    } catch {
       setError('Unable to create assessment')
     } finally {
       setCreatingAssessment(false)
@@ -188,46 +188,6 @@ const Assessment = () => {
       )
   }, [assessments, search])
 
-  const columns = [
-    {
-      key: 'title',
-      label: 'Title',
-      render: (value, row) => (
-        <button
-          type="button"
-          onClick={() => {
-            setActiveAssessmentId(row.id)
-            setShowPerform(true)
-          }}
-          className="text-left text-gray-900 hover:underline"
-        >
-          {value}
-        </button>
-      ),
-    },
-    { key: 'status', label: 'Status' },
-    { key: 'score', label: 'Score' },
-    { key: 'items', label: 'Items' },
-    { key: 'answers', label: 'Answers' },
-    { key: 'completion', label: 'Completion' },
-    {
-      key: 'action',
-      label: 'Action',
-      render: (value, row) => (
-        <button
-          type="button"
-          onClick={() => {
-            setActiveAssessmentId(row.id)
-            setShowPerform(true)
-          }}
-          className="text-[rgb(5,117,204)] hover:underline"
-        >
-          Open
-        </button>
-      ),
-    },
-  ]
-
   return (
     <div>
       {showPerform ? (
@@ -249,112 +209,41 @@ const Assessment = () => {
               {error}
             </p>
           )}
-          <div className='flex flex-wrap items-center justify-between gap-3'>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="min-w-60">
-                <Select
-                  options={organizationOptions}
-                  value={
-                    activeOrganization
-                      ? {
-                          value: activeOrganization.id,
-                          label: activeOrganization.name || `Organization ${activeOrganization.id}`,
-                        }
-                      : null
-                  }
-                  onChange={(option) => {
-                    if (!option) {
-                      setActiveOrganization(null)
-                      return
-                    }
-                    const match = organizations.find(
-                      (org) => String(org.id) === String(option.value)
-                    )
-                    setActiveOrganization(match || null)
-                  }}
-                  placeholder="Select organization..."
-                  isLoading={loadingOrganizations}
-                />
-              </div>
-              {loadingOrganizations && (
-                <span className="text-xs text-gray-400">Loading organizations...</span>
-              )}
-            </div>
-            <div className="flex">
-              <button
-                onClick={() => {
-                  setOpen(true)
-                }}
-                disabled={creatingAssessment}
-                className="
-                ml-2 h-9
-                bg-[rgb(5,117,204)] text-white
-                px-4 rounded-md
-                flex items-center gap-2
-                text-sm font-medium
-                hover:bg-[rgb(0,97,170)]
-                cursor-pointer
-                disabled:opacity-70
-              "
-              >
-                <FaPlus /> {creatingAssessment ? 'Creating...' : 'New Assessment'}
-              </button>
-              {open && (
-                <AssesmentDialogue
-                  onClose={() => setOpen(false)}
-                  onNext={handleNext}
-                  organizations={organizations}
-                  activeOrganizationId={activeOrganization?.id}
-                  onOrganizationCreated={(org) => {
-                    setOrganizations((prev) => [org, ...prev])
-                    setActiveOrganization(org)
-                  }}
-                />
-              )}
+          <AssessmentToolbar
+            organizationOptions={organizationOptions}
+            activeOrganization={activeOrganization}
+            organizations={organizations}
+            loadingOrganizations={loadingOrganizations}
+            creatingAssessment={creatingAssessment}
+            open={open}
+            setOpen={setOpen}
+            onOrganizationChange={(option) => {
+              if (!option) {
+                setActiveOrganization(null)
+                return
+              }
+              const match = organizations.find(
+                (org) => String(org.id) === String(option.value)
+              )
+              setActiveOrganization(match || null)
+            }}
+            onCreateAssessment={handleNext}
+            onOrganizationCreated={(org) => {
+              setOrganizations((prev) => [org, ...prev])
+              setActiveOrganization(org)
+            }}
+          />
 
-              <button className="
-                ml-2 h-9
-                bg-[rgb(248,248,250)] text-black
-                px-4 rounded-md
-                flex items-center gap-2
-                text-sm border border-gray-300
-                hover:bg-[rgb(255,255,255)]
-              ">
-                <FaGear /> Manage Templates
-              </button>
-            </div>
-
-          </div>
-
-          <div className="mt-4">
-            <input
-              type="search"
-              placeholder='Find in list...'
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="
-                border border-[rgba(0,0,0,0.24)] border-b-[rgb(23,24,31)] h-9 px-3 outline-none focus:border-[#473c9a] hover:border-[#473c9a] focus:border-3 text-sm text-[#473c9a] placeholder-gray-300 focus:placeholder-[#473c9a] bg-white w-full max-w-lg rounded-t-sm focus:bg-[#e9e9ee]
-              "
-            />
-          </div>
-
-          <div>
-            {loadingAssessments ? (
-              <div className="mt-6 flex items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white p-10 text-gray-500">
-                <p className="text-sm">Loading assessments...</p>
-              </div>
-            ) : rows.length === 0 ? (
-              <div className="mt-6 flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white p-10 text-gray-500">
-                <RiFileListLine className="text-3xl" />
-                <p className="mt-2 text-sm">No assessments found</p>
-              </div>
-            ) : (
-              <Tables
-                columns={columns}
-                data={rows}
-              />
-            )}
-          </div>
+          <AssessmentList
+            loading={loadingAssessments}
+            rows={rows}
+            search={search}
+            onSearchChange={setSearch}
+            onOpenAssessment={(id) => {
+              setActiveAssessmentId(id)
+              setShowPerform(true)
+            }}
+          />
         </>
       )}
     </div>

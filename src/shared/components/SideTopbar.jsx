@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import TopBar from './TopBar'
 import Sidebar from './Sidebar'
-import Assessment from '../tabs/Assessment'
-import Roadmap from '../tabs/Roadmap'
-import RoadmapIcon from '../assets/icons/Roadmap.svg'
-import ListIcon from '../assets/icons/List.svg'
+import Assessment from '../../features/assessments/assessment/Assessment'
+import Roadmap from '../../features/roadmap/Roadmap'
+import RoadmapIcon from '../../assets/icons/Roadmap.svg'
+import ListIcon from '../../assets/icons/List.svg'
+import { MdOutlineAssessment } from "react-icons/md";
 
 const SideTopbar = ({
     items,
@@ -18,21 +19,17 @@ const SideTopbar = ({
     const defaultTabs = [
         { id: 'Roadmap', label: 'Roadmap', icon: RoadmapIcon, content: <Roadmap /> },
         { id: 'assessments', label: 'Assessments', icon: ListIcon, content: <Assessment /> },
+        
     ]
 
     const resolvedItems = items || defaultTabs
     const [internalActive, setInternalActive] = useState(resolvedItems[0]?.id)
 
-    useEffect(() => {
-        if (activeId || resolvedItems.length === 0) {
-            return
-        }
-        if (!resolvedItems.some((item) => item.id === internalActive)) {
-            setInternalActive(resolvedItems[0].id)
-        }
-    }, [activeId, internalActive, resolvedItems])
-
-    const resolvedActiveId = activeId || internalActive
+    const resolvedActiveId =
+        activeId ||
+        (resolvedItems.some((item) => item.id === internalActive)
+            ? internalActive
+            : resolvedItems[0]?.id)
     const handleSelect = onSelect || setInternalActive
     const activeItem =
         resolvedItems.find((item) => item.id === resolvedActiveId) || resolvedItems[0]

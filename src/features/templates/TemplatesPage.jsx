@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import WorkspaceLayout from '../../components/WorkspaceLayout'
+import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 import {
   createTemplate,
   deleteTemplate,
   getTemplates,
   updateTemplate,
-} from '../../services/templateService'
+} from '../../shared/services/templateService'
 import { FiAlertCircle, FiCheckCircle } from 'react-icons/fi'
 import TemplateBrowse from './TemplateBrowse'
 import TemplateEditor from './TemplateEditor'

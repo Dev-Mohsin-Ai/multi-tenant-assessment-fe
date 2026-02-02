@@ -1,6 +1,6 @@
 import React from 'react'
 import { IoAppsSharp } from "react-icons/io5";
-import HeaderLogo from '../assets/HeaderLogo.png';
+import HeaderLogo from '../../assets/HeaderLogo.png';
 import { HiMiniQuestionMarkCircle } from "react-icons/hi2";
 
 const Header = () => {

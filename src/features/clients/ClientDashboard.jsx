@@ -3,11 +3,11 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { FaPlus } from 'react-icons/fa6'
 import { FiArrowLeft } from 'react-icons/fi'
 import { RiFileListLine } from 'react-icons/ri'
-import Table from '../components/Tables'
-import AssesmentDialogue from '../components/AssesmentDialogue'
-import WorkspaceLayout from '../components/WorkspaceLayout'
-import { createAssessment } from '../services/assessmentService'
-import { getOrganizationAssessments, getOrganizationById } from '../services/organizationService'
+import Table from '../../shared/components/Tables'
+import AssesmentDialogue from '../assessments/components/AssesmentDialogue'
+import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
+import { createAssessment } from '../../shared/services/assessmentService'
+import { getOrganizationAssessments, getOrganizationById } from '../../shared/services/organizationService'
 
 const ClientDashboard = () => {
   const { organizationId } = useParams()
