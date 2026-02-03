@@ -51,7 +51,7 @@ const AssessmentList = ({
           placeholder="Find in list..."
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
-          className="border border-[rgba(0,0,0,0.24)] border-b-[rgb(23,24,31)] h-9 px-3 outline-none focus:border-[#473c9a] hover:border-[#473c9a] focus:border-3 text-sm text-[#473c9a] placeholder-gray-300 focus:placeholder-[#473c9a] bg-white w-full max-w-lg rounded-t-sm focus:bg-[#e9e9ee]"
+          className="h-10 w-full max-w-lg rounded-md border border-gray-200 px-3 text-sm text-gray-700 bg-white placeholder:text-gray-400 focus:border-[rgb(5,117,204)] focus:ring-1 focus:ring-blue-100"
         />
       </div>
 

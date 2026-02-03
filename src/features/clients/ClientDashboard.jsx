@@ -265,10 +265,10 @@ const ClientDashboard = () => {
       assessmentsPath={organizationId ? `/clients/${organizationId}` : '/clients'}
     >
       <div className="bg-[rgb(248,248,250)] min-h-[calc(100vh-6rem)] rounded-tl-xl overflow-hidden">
-        <div className="px-4 md:px-6 pt-4 md:pt-6">
+        <div className="px-4 md:px-6 pt-5 md:pt-6 pb-8">
           <div className="flex items-center justify-between gap-3 sm:hidden">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">
+              <h2 className="text-xl font-semibold text-gray-900">
                 {organization?.name || 'Client'}
               </h2>
               {organization?.description && (
@@ -310,7 +310,7 @@ const ClientDashboard = () => {
 
           <div className="mt-3 hidden sm:flex flex-col sm:flex-row items-start justify-between gap-3">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">
+              <h2 className="text-2xl font-semibold text-gray-900">
                 {organization?.name || 'Client'}
               </h2>
               {organization?.description && (

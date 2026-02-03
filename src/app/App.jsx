@@ -6,6 +6,7 @@ import { Route, Routes, Navigate, useLocation } from 'react-router-dom'
 import Clients from '../features/clients/Clients'
 import ClientDashboard from '../features/clients/ClientDashboard'
 import AssessmentPage from '../features/assessments/AssessmentPage'
+import ReadOnlyAssessmentPage from '../features/assessments/ReadOnlyAssessmentPage'
 import TemplatesPage from '../features/templates/TemplatesPage'
 import RoadmapPage from '../features/roadmap/RoadmapPage'
 
@@ -77,6 +78,14 @@ const App = () => {
           element={
             <RequireAuth>
               <AssessmentPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path='/assessments/:assessmentId/read-only'
+          element={
+            <RequireAuth>
+              <ReadOnlyAssessmentPage />
             </RequireAuth>
           }
         />

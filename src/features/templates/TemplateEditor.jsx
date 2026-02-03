@@ -2,6 +2,7 @@ import React from 'react'
 import {
   FiChevronDown,
   FiChevronRight,
+  FiCopy,
   FiFolder,
   FiPlus,
   FiSave,
@@ -184,7 +185,7 @@ const TemplateEditor = (props) => {
                           className="text-sm px-3 py-1 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all duration-200 flex items-center gap-1"
                           title="Duplicate category"
                         >
-                          Duplicate
+                          <FiCopy /> Duplicate
                         </button>
                         <button
                           type="button"
@@ -324,7 +325,7 @@ const TemplateEditor = (props) => {
                                         className="text-xs px-2 py-1 rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all duration-200"
                                         title="Duplicate subcategory"
                                       >
-                                        Duplicate
+                                        <FiCopy /> Duplicate
                                       </button>
                                       <button
                                         type="button"

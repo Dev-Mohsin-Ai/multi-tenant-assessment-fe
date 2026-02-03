@@ -180,14 +180,14 @@ const Login = () => {
                   <div className="w-full max-w-sm" ref={googleButtonRef} />
                 </div>
               ) : (
-                <button
-                  type="button"
-                  disabled
-                  className="bg-gray-100 text-gray-400 py-3 rounded-xl w-full text-sm cursor-not-allowed"
-                >
-                  {googleClientId ? "Google login origin not allowed" : "Google login not configured"}
-                </button>
-              )}
+              <button
+                type="button"
+                disabled
+                className="bg-gray-100 text-gray-400 py-3 rounded-lg w-full text-sm cursor-not-allowed"
+              >
+                {googleClientId ? "Google login origin not allowed" : "Google login not configured"}
+              </button>
+            )}
 
               <h4 className="text-xs text-gray-500 px-1 text-center">
                 By signing in, you agree to our{" "}
@@ -196,21 +196,21 @@ const Login = () => {
 
               <button
                 type="submit"
-                className="bg-[#4E6ED0] text-white py-3 rounded-xl w-full text-sm hover:bg-[#3b57a1] transition-colors"
+                className="bg-[rgb(5,117,204)] text-white py-3 rounded-lg w-full text-sm font-medium hover:bg-[rgb(0,97,170)] transition-colors"
               >
                 Continue
               </button>
 
               <Link
                 to="/signup"
-                className="mx-auto text-center text-sm text-[#4E6ED0] hover:bg-[#e6ebfb] py-2 w-60 flex justify-center rounded-lg"
+                className="mx-auto text-center text-sm text-[rgb(5,117,204)] hover:bg-blue-50 py-2 w-60 flex justify-center rounded-lg"
               >
                 I don't know my credentials
               </Link>
 
               <Link
                 to="/signup"
-                className="mx-auto text-center text-sm text-[#4E6ED0] hover:bg-[#e6ebfb] py-2 w-60 flex justify-center rounded-lg"
+                className="mx-auto text-center text-sm text-[rgb(5,117,204)] hover:bg-blue-50 py-2 w-60 flex justify-center rounded-lg"
               >
                 Sign up for free
               </Link>

@@ -18,7 +18,7 @@ const TemplateBrowse = ({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Search templates..."
-            className="w-full h-12 pl-12 pr-4 rounded-md border border-gray-300 bg-white focus:outline-none transition-all duration-200"
+            className="w-full h-12 pl-12 pr-4 rounded-md border border-gray-200 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:border-[rgb(5,117,204)] focus:ring-1 focus:ring-blue-100 transition-all duration-200"
           />
           <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xl" />
         </div>
@@ -62,7 +62,7 @@ const TemplateBrowse = ({
             return (
               <div
                 key={template.id}
-                className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-xl hover:border-blue-300 transition-all duration-300 cursor-pointer transform hover:-translate-y-1"
+                className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-lg hover:border-blue-200 transition-all duration-300 cursor-pointer"
                 onClick={() => onSelectTemplate(template)}
               >
                 <div className="flex items-start justify-between mb-3">

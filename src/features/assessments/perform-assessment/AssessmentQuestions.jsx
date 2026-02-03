@@ -25,6 +25,7 @@ const AssessmentQuestions = ({
   handleSelect,
   savingItems,
   isCompleted,
+  isReadOnly,
   getBadgeClasses,
 }) => {
   return (
@@ -97,7 +98,11 @@ const AssessmentQuestions = ({
                         const isItemOpen = expandedItems.has(item.id)
                         const isSaving = savingItems.has(item.id)
                         return (
-                          <div key={item.id} className="rounded-md border border-gray-200">
+                          <div
+                            key={item.id}
+                            data-response-id={item.id}
+                            className="rounded-md border border-gray-200"
+                          >
                             <button
                               type="button"
                               onClick={() => {
@@ -174,7 +179,7 @@ const AssessmentQuestions = ({
                                             onChange={() => {
                                               handleSelect(item.id, option.id)
                                             }}
-                                            disabled={isSaving || isCompleted}
+                                            disabled={isSaving || isCompleted || isReadOnly}
                                           />
                                         </span>
                                         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${getBadgeClasses(option.label)}`}>

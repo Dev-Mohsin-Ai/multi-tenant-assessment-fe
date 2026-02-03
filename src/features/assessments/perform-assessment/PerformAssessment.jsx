@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { FiArrowLeft, FiDownload } from 'react-icons/fi'
 import {
   completeAssessment,
@@ -7,6 +8,7 @@ import {
 } from '../../../shared/services/assessmentService'
 import AssessmentQuestions from './AssessmentQuestions'
 import CompletedSummary from './CompletedSummary'
+import InitiativeDrawer from '../../roadmap/InitiativeDrawer'
 
 const toArray = (value) => (Array.isArray(value) ? value : [])
 
@@ -110,13 +112,59 @@ const formatDateLabel = (value) => {
   })
 }
 
+const INITIATIVE_STORAGE_KEY = 'roadmapInitiatives'
+const INITIATIVE_LINKS_KEY = 'initiativeLinks'
+const PENDING_LINK_KEY = 'pendingInitiativeLink'
+const OPEN_INITIATIVE_KEY = 'openInitiativeId'
+
+const loadInitiatives = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(INITIATIVE_STORAGE_KEY) || '[]')
+    return Array.isArray(stored) ? stored : []
+  } catch {
+    return []
+  }
+}
+
+const loadLinksForAssessment = (assessmentId) => {
+  if (!assessmentId) {
+    return {}
+  }
+  try {
+    const stored = JSON.parse(localStorage.getItem(INITIATIVE_LINKS_KEY) || '{}')
+    return stored?.[assessmentId] || {}
+  } catch {
+    return {}
+  }
+}
+
+const saveLinksForAssessment = (assessmentId, nextLinks) => {
+  if (!assessmentId) {
+    return
+  }
+  try {
+    const stored = JSON.parse(localStorage.getItem(INITIATIVE_LINKS_KEY) || '{}')
+    stored[assessmentId] = nextLinks
+    localStorage.setItem(INITIATIVE_LINKS_KEY, JSON.stringify(stored))
+  } catch {
+    localStorage.setItem(
+      INITIATIVE_LINKS_KEY,
+      JSON.stringify({ [assessmentId]: nextLinks })
+    )
+  }
+}
+
 const PerformAssessment = ({
   onBack,
   assessmentId,
   onProgress,
   onComplete,
   onLoaded,
+  readOnly = false,
+  focusResponseId = null,
 }) => {
+  const navigate = useNavigate()
+  const location = useLocation()
   const [assessment, setAssessment] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -126,6 +174,19 @@ const PerformAssessment = ({
   const [savingItems, setSavingItems] = useState(() => new Set())
   const [isCompleting, setIsCompleting] = useState(false)
   const [responseFilter, setResponseFilter] = useState('all')
+  const [initiatives, setInitiatives] = useState(() => loadInitiatives())
+  const [initiativeLinks, setInitiativeLinks] = useState(() =>
+    loadLinksForAssessment(assessmentId)
+  )
+  const [initiativePicker, setInitiativePicker] = useState({
+    responseId: null,
+    mode: 'existing',
+    isOpen: false,
+  })
+  const [initiativeEditor, setInitiativeEditor] = useState({
+    open: false,
+    initiative: null,
+  })
 
   useEffect(() => {
     let isMounted = true
@@ -177,7 +238,19 @@ const PerformAssessment = ({
     }
   }, [assessmentId, onLoaded])
 
+  useEffect(() => {
+    setInitiativeLinks(loadLinksForAssessment(assessmentId))
+  }, [assessmentId])
+
+  useEffect(() => {
+    localStorage.setItem(INITIATIVE_STORAGE_KEY, JSON.stringify(initiatives))
+  }, [initiatives])
+
   const categories = useMemo(() => assessment?.categories || [], [assessment])
+  const years = useMemo(() => {
+    const currentYear = new Date().getFullYear()
+    return Array.from({ length: 5 }, (_, index) => currentYear + index)
+  }, [])
   const templateTitle =
     assessment?.template_title ||
     assessment?.templateTitle ||
@@ -253,6 +326,8 @@ const PerformAssessment = ({
         }
         groups[key].push({
           id: `${subcategory.id}-${selectedOption.id}`,
+          responseId: subcategory.id,
+          categoryTitle: category.title,
           title: subcategory.title,
           description: subcategory.description,
           responseLabel: selectedOption.label,
@@ -332,8 +407,46 @@ const PerformAssessment = ({
     expandAllItems()
   }
 
+  useEffect(() => {
+    if (!focusResponseId || categories.length === 0) {
+      return
+    }
+    let targetCategory = null
+    let targetSubcategory = null
+    categories.forEach((category) => {
+      category.subcategories.forEach((subcategory) => {
+        if (String(subcategory.id) === String(focusResponseId)) {
+          targetCategory = category
+          targetSubcategory = subcategory
+        }
+      })
+    })
+    if (!targetCategory || !targetSubcategory) {
+      return
+    }
+    setExpandedSections((prev) => {
+      const next = new Set(prev)
+      next.add(targetCategory.id)
+      return next
+    })
+    setExpandedItems((prev) => {
+      const next = new Set(prev)
+      next.add(targetSubcategory.id)
+      return next
+    })
+    const timer = setTimeout(() => {
+      const node = document.querySelector(
+        `[data-response-id="${String(focusResponseId)}"]`
+      )
+      if (node) {
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [categories, focusResponseId])
+
   const handleSelect = async (subcategoryId, responseId) => {
-    if (isCompleted) {
+    if (isCompleted || readOnly) {
       return
     }
     setSelections((prev) => ({
@@ -391,6 +504,110 @@ const PerformAssessment = ({
     } finally {
       setIsCompleting(false)
     }
+  }
+
+  const sortedInitiatives = useMemo(() => {
+    return initiatives
+      .slice()
+      .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')))
+  }, [initiatives])
+
+  const handleOpenInitiative = (initiativeId) => {
+    if (!initiativeId) {
+      return
+    }
+    const found = initiatives.find(
+      (initiative) => String(initiative.id) === String(initiativeId)
+    )
+    if (found) {
+      setInitiativeEditor({ open: true, initiative: found })
+    }
+  }
+
+  const handleCreateInitiative = (item) => {
+    if (!assessmentId) {
+      return
+    }
+    const linkPayload = {
+      assessmentId,
+      responseId: item.responseId || item.id,
+      title: item.title,
+      categoryTitle: item.categoryTitle,
+      responseLabel: item.responseLabel,
+    }
+    localStorage.setItem(PENDING_LINK_KEY, JSON.stringify(linkPayload))
+    navigate('/roadmap')
+  }
+
+  const handleSelectExistingInitiative = (item, initiativeId) => {
+    if (!assessmentId || !initiativeId) {
+      return
+    }
+    const responseId = item.responseId || item.id
+    const nextLinks = { ...initiativeLinks, [responseId]: initiativeId }
+    setInitiativeLinks(nextLinks)
+    saveLinksForAssessment(assessmentId, nextLinks)
+    setInitiatives((prev) =>
+      prev.map((initiative) => {
+        if (String(initiative.id) !== String(initiativeId)) {
+          return initiative
+        }
+        const linkEntry = {
+          assessmentId,
+          responseId,
+          title: item.title,
+          categoryTitle: item.categoryTitle,
+          responseLabel: item.responseLabel,
+        }
+        const existing = initiative.linkedItems || []
+        const alreadyLinked = existing.some(
+          (entry) =>
+            String(entry.assessmentId) === String(assessmentId) &&
+            String(entry.responseId) === String(item.id)
+        )
+        return alreadyLinked
+          ? initiative
+          : { ...initiative, linkedItems: [...existing, linkEntry] }
+      })
+    )
+    setInitiativePicker({ responseId: null, mode: 'existing', isOpen: false })
+  }
+
+  const handleSaveInitiativeFromAssessment = (updated) => {
+    setInitiatives((prev) =>
+      prev.map((item) => (String(item.id) === String(updated.id) ? updated : item))
+    )
+    setInitiativeEditor({ open: false, initiative: null })
+  }
+
+  const handleDeleteInitiativeFromAssessment = (initiativeId) => {
+    setInitiatives((prev) =>
+      prev.filter((item) => String(item.id) !== String(initiativeId))
+    )
+    if (assessmentId) {
+      const nextLinks = { ...initiativeLinks }
+      Object.keys(nextLinks).forEach((key) => {
+        if (String(nextLinks[key]) === String(initiativeId)) {
+          delete nextLinks[key]
+        }
+      })
+      setInitiativeLinks(nextLinks)
+      saveLinksForAssessment(assessmentId, nextLinks)
+    }
+    setInitiativeEditor({ open: false, initiative: null })
+  }
+
+  const handleLinkedAssessmentClick = (item) => {
+    if (!item?.assessmentId) {
+      return
+    }
+    const targetResponseId = item.responseId || item.id
+    navigate(`/assessments/${item.assessmentId}/read-only`, {
+      state: {
+        responseId: targetResponseId,
+        backTo: location?.pathname || '/clients',
+      },
+    })
   }
 
   const getBadgeClasses = (label) => {
@@ -480,18 +697,20 @@ const PerformAssessment = ({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleComplete}
-              disabled={isCompleting || isCompleted}
-              className="px-4 py-2 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2 text-sm font-medium disabled:opacity-60"
-            >
-              {isCompleted
-                ? 'Assessment completed'
-                : isCompleting
-                ? 'Completing...'
-                : 'Complete assessment'}
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={handleComplete}
+                disabled={isCompleting || isCompleted}
+                className="px-4 py-2 rounded-md border border-gray-300 bg-white hover:bg-gray-50 inline-flex items-center gap-2 text-sm font-medium disabled:opacity-60"
+              >
+                {isCompleted
+                  ? 'Assessment completed'
+                  : isCompleting
+                  ? 'Completing...'
+                  : 'Complete assessment'}
+              </button>
+            )}
             <button className="px-4 py-2 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-2 text-sm font-medium">
               <FiDownload className="text-base" />
               Download report
@@ -510,7 +729,7 @@ const PerformAssessment = ({
         </div>
       </div>
 
-      {isCompleted ? (
+      {isCompleted && !readOnly ? (
         <CompletedSummary
           responseFilter={responseFilter}
           onFilterChange={setResponseFilter}
@@ -523,20 +742,152 @@ const PerformAssessment = ({
               <td className="px-4 py-3">
                 <input type="checkbox" className="h-4 w-4" />
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-3 w-[55%]">
                 <div className="font-semibold text-gray-900">{item.title}</div>
                 {item.description && (
                   <p className="text-xs text-gray-600 mt-1">{item.description}</p>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-3 w-[25%]">
                 <div className="font-semibold text-gray-900">{item.responseLabel}</div>
                 <p className="text-xs text-gray-600 mt-1">
                   {item.responseDescription || 'No description provided.'}
                 </p>
               </td>
-              <td className="px-4 py-3 text-center text-gray-500">-</td>
-              <td className="px-4 py-3 text-center text-gray-500">-</td>
+              <td className="px-4 py-3 w-[20%] text-center">
+                {(() => {
+                  const responseId = item.responseId || item.id
+                  const linkedInitiativeId = initiativeLinks[responseId]
+                  const linkedInitiative = sortedInitiatives.find(
+                    (initiative) => String(initiative.id) === String(linkedInitiativeId)
+                  )
+                  const isPickerOpen =
+                    initiativePicker.isOpen && initiativePicker.responseId === responseId
+                  const pickerMode = initiativePicker.mode
+
+                  if (linkedInitiative) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenInitiative(linkedInitiative.id)}
+                        className="text-sm font-semibold text-blue-700 hover:text-blue-900"
+                      >
+                        {linkedInitiative.title || 'Untitled initiative'}
+                      </button>
+                    )
+                  }
+
+                  return (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setInitiativePicker({
+                            responseId,
+                            mode: 'existing',
+                            isOpen: true,
+                          })
+                        }
+                        className="h-8 w-8 rounded-md border border-gray-300 bg-white text-blue-700 hover:bg-blue-50"
+                      >
+                        +
+                      </button>
+                      {isPickerOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                          <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-sm font-semibold text-gray-900">
+                                Link initiative
+                              </h4>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInitiativePicker({
+                                    responseId: null,
+                                    mode: 'existing',
+                                    isOpen: false,
+                                  })
+                                }
+                                className="text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Close
+                              </button>
+                            </div>
+                            <div className="mt-4 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInitiativePicker({
+                                    responseId,
+                                    mode: 'existing',
+                                    isOpen: true,
+                                  })
+                                }
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-md border ${
+                                  pickerMode === 'existing'
+                                    ? 'border-blue-600 bg-blue-50 text-blue-700'
+                                    : 'border-gray-200 text-gray-600'
+                                }`}
+                              >
+                                Existing
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInitiativePicker({
+                                    responseId,
+                                    mode: 'create',
+                                    isOpen: true,
+                                  })
+                                }
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-md border ${
+                                  pickerMode === 'create'
+                                    ? 'border-blue-600 bg-blue-50 text-blue-700'
+                                    : 'border-gray-200 text-gray-600'
+                                }`}
+                              >
+                                Create new
+                              </button>
+                            </div>
+                            {pickerMode === 'existing' ? (
+                              <div className="mt-4 space-y-2 max-h-64 overflow-auto">
+                                {sortedInitiatives.length === 0 ? (
+                                  <p className="text-xs text-gray-500">
+                                    No initiatives yet. Create a new one.
+                                  </p>
+                                ) : (
+                                  sortedInitiatives.map((initiative) => (
+                                    <button
+                                      key={initiative.id}
+                                      type="button"
+                                      onClick={() =>
+                                        handleSelectExistingInitiative(item, initiative.id)
+                                      }
+                                      className="w-full text-left rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                    >
+                                      {initiative.title || 'Untitled initiative'}
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            ) : (
+                              <div className="mt-4">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCreateInitiative(item)}
+                                  className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                                >
+                                  Create initiative
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </td>
             </tr>
           )}
         />
@@ -555,9 +906,21 @@ const PerformAssessment = ({
           handleSelect={handleSelect}
           savingItems={savingItems}
           isCompleted={isCompleted}
+          isReadOnly={readOnly}
           getBadgeClasses={getBadgeClasses}
         />
       )}
+
+      <InitiativeDrawer
+        open={initiativeEditor.open}
+        mode="edit"
+        initiative={initiativeEditor.initiative}
+        years={years}
+        onClose={() => setInitiativeEditor({ open: false, initiative: null })}
+        onSave={handleSaveInitiativeFromAssessment}
+        onDelete={handleDeleteInitiativeFromAssessment}
+        onLinkedAssessmentClick={handleLinkedAssessmentClick}
+      />
     </div>
   )
 }

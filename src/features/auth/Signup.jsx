@@ -147,7 +147,7 @@ const Signup = () => {
 
                         <button
                             type='submit'
-                            className="bg-[#4E6ED0] text-white py-2 rounded-xl w-full mt-2 text-sm hover:bg-[#3b57a1] transition-colors">
+                            className="bg-[rgb(5,117,204)] text-white py-2 rounded-lg w-full mt-2 text-sm font-medium hover:bg-[rgb(0,97,170)] transition-colors">
                             Create Account
                         </button>
 

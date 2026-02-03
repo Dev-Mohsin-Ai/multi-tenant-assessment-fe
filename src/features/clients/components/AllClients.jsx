@@ -128,11 +128,11 @@ const AllClients = () => {
   ]
 
   return (
-    <div className="px-4 pt-4 bg-[rgb(248,248,250)] min-h-screen rounded-tl-2xl overflow-hidden">
+    <div className="px-4 md:px-6 pt-5 pb-8 bg-[rgb(248,248,250)] min-h-screen rounded-tl-2xl overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">All Clients</h2>
-          <p className="text-xs text-gray-500">
+          <h2 className="text-2xl font-semibold text-gray-900">All Clients</h2>
+          <p className="text-xs text-gray-500 mt-1">
             {rows.length} client{rows.length === 1 ? '' : 's'}
           </p>
         </div>
@@ -146,21 +146,21 @@ const AllClients = () => {
       </div>
 
       {showCreate && (
-        <div className="mt-4 rounded-md border border-gray-200 bg-white p-4">
+        <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
           <div className="grid gap-3 md:grid-cols-2">
             <input
               type="text"
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
               placeholder="Client name"
-              className="h-10 px-3 border border-gray-300 rounded-md bg-white text-sm text-gray-700 placeholder:text-gray-400"
+              className="h-10 px-3 border border-gray-200 rounded-md bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:border-[rgb(5,117,204)] focus:ring-1 focus:ring-blue-100"
             />
             <input
               type="text"
               value={newDescription}
               onChange={(event) => setNewDescription(event.target.value)}
               placeholder="Description (optional)"
-              className="h-10 px-3 border border-gray-300 rounded-md bg-white text-sm text-gray-700 placeholder:text-gray-400"
+              className="h-10 px-3 border border-gray-200 rounded-md bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:border-[rgb(5,117,204)] focus:ring-1 focus:ring-blue-100"
             />
           </div>
           <div className="mt-3 flex items-center gap-3">
@@ -189,13 +189,13 @@ const AllClients = () => {
         </p>
       )}
 
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-5 flex items-center gap-3">
         <input
           type="text"
           placeholder="Search clients..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="flex-1 h-10 px-3 border border-[rgb(200,200,205)] rounded-sm outline-none text-sm text-[#473c9a] bg-white placeholder:text-[rgb(182,183,195)] focus:border-2 focus:border-[#473c9a]"
+          className="flex-1 h-10 px-3 border border-gray-200 rounded-md outline-none text-sm text-gray-700 bg-white placeholder:text-gray-400 focus:border-[rgb(5,117,204)] focus:ring-1 focus:ring-blue-100"
         />
       </div>
 

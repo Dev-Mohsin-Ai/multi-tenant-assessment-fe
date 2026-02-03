@@ -7,7 +7,7 @@ const TemplatesHeader = ({ activeTab, onTabChange, onNewTemplate, selectedTempla
       <div className="px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">
+            <h2 className="text-2xl font-semibold text-gray-900">
               Assessment Templates
             </h2>
             <p className="text-sm text-gray-600 mt-1">

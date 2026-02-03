@@ -13,43 +13,32 @@ const TopBar = ({ activeLabel, clientName = 'Mia Labs' }) => {
         setHoverInfo(false)
     }
     return (
-        <div className="w-full px-4 mt-4 pb-3 md:pt-3">
-
+        <div className="w-full px-4 md:px-6 pt-4 pb-4 border-b border-gray-200 bg-white">
             <div className="flex items-center justify-between flex-wrap gap-4">
 
                 {/* LEFT SIDE */}
                 <div className="flex items-center gap-3 flex-wrap">
 
-                    <h1 className="font-bold text-xl">
+                    <h1 className="font-semibold text-xl text-gray-900">
                         {clientName}
                     </h1>
 
-                    <IoMdStarOutline className='bg-[rgb(245,245,245)] cursor-pointer border border-gray-200 rounded-sm text-lg' />
+                    <IoMdStarOutline className="bg-white cursor-pointer border border-gray-200 rounded-md text-lg text-gray-500 p-0.5" />
 
                     {/* Not Assigned with same border + bg */}
                     <button
                         type="button"
-                        className="flex pl-6 items-center gap-1 text-sm bg-[rgb(248,248,250)] border border-gray-200 rounded-sm px-2 py-1"
+                        className="flex items-center gap-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-md px-3 py-1.5 hover:bg-gray-50"
                     >
                         Not assigned
-                        <FaChevronDown className="text-xs" />
+                        <FaChevronDown className="text-xs text-gray-500" />
                     </button>
 
                     <span className='text-gray-400'>/</span>
 
-                    <h2 className="font-bold text-lg">
+                    <h2 className="font-semibold text-base text-gray-700">
                         {activeLabel}
                     </h2>
-
-                    {/* Only Pro + X green */}
-                    <span className="hidden md:inline-flex items-center gap-2 px-2 rounded-md text-xs font-semibold">
-                        <span className="bg-[rgb(61,144,114)] text-white px-1 rounded-md py-0.5">
-                            PRO + X
-                        </span>{' '}
-                        <span className="font-normal text-[rgba(0,0,0,0.64)]">
-                            features are unlocked for this client.
-                        </span>
-                    </span>
 
                 </div>
 
@@ -63,24 +52,11 @@ const TopBar = ({ activeLabel, clientName = 'Mia Labs' }) => {
                         />
 
                         {hoverInfo && (
-                            <div className="absolute right-5  bg-gray-50 text-black text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+                            <div className="absolute right-5 bg-white text-gray-700 text-xs px-3 py-2 rounded-md shadow-lg border border-gray-200 whitespace-nowrap">
                                 Learn more about Lifecycle Manager X
                             </div>
                         )}
                     </div>
-
-                    <span className="font-medium">
-                        Pro + X Features:
-                    </span>
-
-                    <div className="flex items-center gap-2">
-                        <span className='font-bold'>On</span>
-
-                        <button className="w-10 h-5 bg-gray-400 rounded-full relative">
-                            <span className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full"></span>
-                        </button>
-                    </div>
-
                 </div>
 
             </div>
