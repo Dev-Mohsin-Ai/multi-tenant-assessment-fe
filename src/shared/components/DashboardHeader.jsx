@@ -23,7 +23,7 @@ const DashboardHeader = () => {
             className="h-6 w-6 grayscale contrast-400 brightness-60 invert cursor-pointer"
           />
           <h1
-            onClick={() => navigate('/clients')}
+            onClick={() => navigate('/clients/select')}
             className="text-lg font-semibold cursor-pointer whitespace-nowrap tracking-wide"
           >
             Lifecycle Manager
@@ -48,7 +48,7 @@ const DashboardHeader = () => {
           />
 
           <h1
-            onClick={() => navigate('/clients')}
+            onClick={() => navigate('/clients/select')}
             className="text-lg font-semibold cursor-pointer whitespace-nowrap tracking-wide"
           >
             Lifecycle Manager

@@ -22,7 +22,7 @@ const ClientDashboard = () => {
 
   useEffect(() => {
     if (!organizationId) {
-      navigate('/clients', { replace: true })
+      navigate('/clients/select', { replace: true })
       return undefined
     }
 
@@ -45,6 +45,13 @@ const ClientDashboard = () => {
           ? assessmentData
           : assessmentData?.assessments || []
         setOrganization(resolvedOrganization)
+        if (resolvedOrganization?.id) {
+          localStorage.setItem('activeOrganizationId', resolvedOrganization.id)
+          localStorage.setItem(
+            'activeOrganizationName',
+            resolvedOrganization.name || ''
+          )
+        }
         setAssessments(list)
       } catch (err) {
         if (isMounted) {
@@ -279,7 +286,7 @@ const ClientDashboard = () => {
             </div>
             <button
               type="button"
-              onClick={() => navigate('/clients')}
+              onClick={() => navigate('/clients/select')}
               className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
               aria-label="Back to clients"
             >
@@ -300,7 +307,7 @@ const ClientDashboard = () => {
 
           <button
             type="button"
-            onClick={() => navigate('/clients')}
+            onClick={() => navigate('/clients/select')}
             className="hidden sm:inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
             aria-label="Back to clients"
           >

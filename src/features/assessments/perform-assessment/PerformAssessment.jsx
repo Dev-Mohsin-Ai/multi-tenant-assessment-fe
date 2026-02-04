@@ -6,9 +6,17 @@ import {
   getAssessmentById,
   updateSubcategoryResponse,
 } from '../../../shared/services/assessmentService'
+import {
+  getInitiatives,
+  getInitiativeById,
+  linkSubcategories,
+  updateInitiative,
+  deleteInitiative,
+} from '../../../shared/services/initiativeService'
 import AssessmentQuestions from './AssessmentQuestions'
 import CompletedSummary from './CompletedSummary'
 import InitiativeDrawer from '../../roadmap/InitiativeDrawer'
+import { mapInitiativeFromApi, mapInitiativeToApi } from '../../roadmap/initiativeMapper'
 
 const toArray = (value) => (Array.isArray(value) ? value : [])
 
@@ -112,19 +120,8 @@ const formatDateLabel = (value) => {
   })
 }
 
-const INITIATIVE_STORAGE_KEY = 'roadmapInitiatives'
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
-const OPEN_INITIATIVE_KEY = 'openInitiativeId'
-
-const loadInitiatives = () => {
-  try {
-    const stored = JSON.parse(localStorage.getItem(INITIATIVE_STORAGE_KEY) || '[]')
-    return Array.isArray(stored) ? stored : []
-  } catch {
-    return []
-  }
-}
 
 const loadLinksForAssessment = (assessmentId) => {
   if (!assessmentId) {
@@ -174,7 +171,7 @@ const PerformAssessment = ({
   const [savingItems, setSavingItems] = useState(() => new Set())
   const [isCompleting, setIsCompleting] = useState(false)
   const [responseFilter, setResponseFilter] = useState('all')
-  const [initiatives, setInitiatives] = useState(() => loadInitiatives())
+  const [initiatives, setInitiatives] = useState([])
   const [initiativeLinks, setInitiativeLinks] = useState(() =>
     loadLinksForAssessment(assessmentId)
   )
@@ -243,8 +240,43 @@ const PerformAssessment = ({
   }, [assessmentId])
 
   useEffect(() => {
-    localStorage.setItem(INITIATIVE_STORAGE_KEY, JSON.stringify(initiatives))
-  }, [initiatives])
+    let isMounted = true
+    const organizationId =
+      assessment?.organizationId || Number(localStorage.getItem('activeOrganizationId'))
+    if (!organizationId) {
+      setInitiatives([])
+      return () => {
+        isMounted = false
+      }
+    }
+    const loadInitiatives = async () => {
+      try {
+        const data = await getInitiatives({ organization_id: organizationId })
+        const list = Array.isArray(data) ? data : data?.initiatives || []
+        if (!isMounted) {
+          return
+        }
+        const detailed = await Promise.all(
+          list.map(async (item) => {
+            try {
+              return await getInitiativeById(item.id)
+            } catch {
+              return item
+            }
+          })
+        )
+        setInitiatives(detailed.map((item) => mapInitiativeFromApi(item)))
+      } catch {
+        if (isMounted) {
+          setInitiatives([])
+        }
+      }
+    }
+    loadInitiatives()
+    return () => {
+      isMounted = false
+    }
+  }, [assessment?.organizationId])
 
   const categories = useMemo(() => assessment?.categories || [], [assessment])
   const years = useMemo(() => {
@@ -337,6 +369,16 @@ const PerformAssessment = ({
     })
     return groups
   }, [categories, selections])
+
+  const responseItemById = useMemo(() => {
+    const map = new Map()
+    Object.values(responseGroups).forEach((items) => {
+      items.forEach((item) => {
+        map.set(String(item.responseId || item.id), item)
+      })
+    })
+    return map
+  }, [responseGroups])
 
   const responseGroupOrder = [
     { key: 'at_risk', label: 'At Risk', header: 'bg-red-100 text-red-800', badge: 'bg-red-500 text-white' },
@@ -520,7 +562,30 @@ const PerformAssessment = ({
       (initiative) => String(initiative.id) === String(initiativeId)
     )
     if (found) {
-      setInitiativeEditor({ open: true, initiative: found })
+      const linkedItems = Object.entries(initiativeLinks)
+        .filter(([, linkedId]) => String(linkedId) === String(initiativeId))
+        .map(([responseId]) => {
+          const item = responseItemById.get(String(responseId))
+          return item
+            ? {
+                assessmentId,
+                responseId: item.responseId || item.id,
+                subcategoryId: item.responseId || item.id,
+                title: item.title,
+                categoryTitle: item.categoryTitle,
+                responseLabel: item.responseLabel,
+              }
+            : null
+        })
+        .filter(Boolean)
+      setInitiativeEditor({
+        open: true,
+        initiative: {
+          ...found,
+          linkedItems,
+          linkedSubcategoryIds: linkedItems.map((item) => item.subcategoryId),
+        },
+      })
     }
   }
 
@@ -531,6 +596,7 @@ const PerformAssessment = ({
     const linkPayload = {
       assessmentId,
       responseId: item.responseId || item.id,
+      subcategoryId: item.responseId || item.id,
       title: item.title,
       categoryTitle: item.categoryTitle,
       responseLabel: item.responseLabel,
@@ -547,6 +613,7 @@ const PerformAssessment = ({
     const nextLinks = { ...initiativeLinks, [responseId]: initiativeId }
     setInitiativeLinks(nextLinks)
     saveLinksForAssessment(assessmentId, nextLinks)
+    linkSubcategories(initiativeId, [responseId]).catch(() => {})
     setInitiatives((prev) =>
       prev.map((initiative) => {
         if (String(initiative.id) !== String(initiativeId)) {
@@ -555,6 +622,7 @@ const PerformAssessment = ({
         const linkEntry = {
           assessmentId,
           responseId,
+          subcategoryId: responseId,
           title: item.title,
           categoryTitle: item.categoryTitle,
           responseLabel: item.responseLabel,
@@ -565,22 +633,39 @@ const PerformAssessment = ({
             String(entry.assessmentId) === String(assessmentId) &&
             String(entry.responseId) === String(item.id)
         )
-        return alreadyLinked
-          ? initiative
-          : { ...initiative, linkedItems: [...existing, linkEntry] }
+        if (alreadyLinked) {
+          return initiative
+        }
+        return {
+          ...initiative,
+          linkedItems: [...existing, linkEntry],
+          linkedSubcategoryIds: Array.from(
+            new Set([...(initiative.linkedSubcategoryIds || []), responseId])
+          ),
+        }
       })
     )
     setInitiativePicker({ responseId: null, mode: 'existing', isOpen: false })
   }
 
   const handleSaveInitiativeFromAssessment = (updated) => {
+    const organizationId =
+      assessment?.organizationId || Number(localStorage.getItem('activeOrganizationId'))
+    if (organizationId) {
+      updateInitiative(updated.id, mapInitiativeToApi(updated, organizationId)).catch(
+        () => {}
+      )
+    }
     setInitiatives((prev) =>
-      prev.map((item) => (String(item.id) === String(updated.id) ? updated : item))
+      prev.map((item) =>
+        String(item.id) === String(updated.id) ? updated : item
+      )
     )
     setInitiativeEditor({ open: false, initiative: null })
   }
 
   const handleDeleteInitiativeFromAssessment = (initiativeId) => {
+    deleteInitiative(initiativeId).catch(() => {})
     setInitiatives((prev) =>
       prev.filter((item) => String(item.id) !== String(initiativeId))
     )
@@ -605,7 +690,7 @@ const PerformAssessment = ({
     navigate(`/assessments/${item.assessmentId}/read-only`, {
       state: {
         responseId: targetResponseId,
-        backTo: location?.pathname || '/clients',
+        backTo: location?.pathname || '/clients/select',
       },
     })
   }
@@ -912,6 +997,7 @@ const PerformAssessment = ({
       )}
 
       <InitiativeDrawer
+        key={initiativeEditor.initiative?.id ?? 'new'}
         open={initiativeEditor.open}
         mode="edit"
         initiative={initiativeEditor.initiative}

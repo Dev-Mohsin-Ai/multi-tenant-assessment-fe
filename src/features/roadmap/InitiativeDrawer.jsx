@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   FiX,
   FiFlag,
@@ -31,9 +31,45 @@ const InitiativeDrawer = ({
   presetQuarter,
   onLinkedAssessmentClick = () => {},
 }) => {
+  const getResponseBadge = (label) => {
+    const normalized = String(label || '').toLowerCase()
+    if (normalized.includes('at risk')) {
+      return 'bg-red-100 text-red-800 border-red-200'
+    }
+    if (normalized.includes('needs attention')) {
+      return 'bg-orange-100 text-orange-800 border-orange-200'
+    }
+    if (normalized.includes('acceptable')) {
+      return 'bg-amber-100 text-amber-800 border-amber-200'
+    }
+    if (normalized.includes('satisfactory') || normalized === 'yes') {
+      return 'bg-green-100 text-green-800 border-green-200'
+    }
+    if (normalized === 'no') {
+      return 'bg-red-100 text-red-800 border-red-200'
+    }
+    if (normalized.includes('unknown')) {
+      return 'bg-gray-100 text-gray-700 border-gray-200'
+    }
+    if (normalized.includes('not applicable')) {
+      return 'bg-purple-100 text-purple-800 border-purple-200'
+    }
+    return 'bg-gray-50 text-gray-600 border-gray-200'
+  }
   const [form, setForm] = useState(() => {
     if (initiative) {
-      return { ...initiative, peopleCount: initiative.peopleCount ?? 1 }
+      const derivedLinkedIds = Array.isArray(initiative.linkedItems)
+        ? initiative.linkedItems
+            .map((item) => item.subcategoryId)
+            .filter(Boolean)
+        : []
+      return {
+        ...initiative,
+        linkedSubcategoryIds:
+          initiative.linkedSubcategoryIds?.length
+            ? initiative.linkedSubcategoryIds
+            : derivedLinkedIds,
+      }
     }
     const startDate = new Date().toISOString().slice(0, 10)
     const defaultQuarter = presetQuarter || getQuarterFromDate(startDate)
@@ -46,54 +82,19 @@ const InitiativeDrawer = ({
       endDate: startDate,
       status: 'Open',
       priority: 'Medium',
-      contact: CONTACTS[0],
-      peopleCount: 1,
+      contactId: CONTACTS[0]?.id || 1,
       isScheduled: true,
       year: defaultYear,
       quarter: defaultQuarter,
-      budget: '',
       actionItems: [],
       goals: [],
       assets: [],
       oneTimeFees: [],
       recurringFees: [],
       linkedItems: [],
+      linkedSubcategoryIds: [],
     }
   })
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    if (initiative) {
-      setForm({ ...initiative, peopleCount: initiative.peopleCount ?? 1 })
-      return
-    }
-    const startDate = new Date().toISOString().slice(0, 10)
-    const defaultQuarter = presetQuarter || getQuarterFromDate(startDate)
-    const defaultYear = presetYear || new Date().getFullYear()
-    setForm({
-      id: createId(),
-      title: '',
-      summary: '',
-      startDate,
-      endDate: startDate,
-      status: 'Open',
-      priority: 'Medium',
-      contact: CONTACTS[0],
-      peopleCount: 1,
-      isScheduled: true,
-      year: defaultYear,
-      quarter: defaultQuarter,
-      budget: '',
-      actionItems: [],
-      goals: [],
-      assets: [],
-      oneTimeFees: [],
-      recurringFees: [],
-      linkedItems: [],
-    })
-  }, [initiative, open, presetQuarter, presetYear])
 
   const yearOptions = useMemo(() => {
     if (years?.length) {
@@ -134,7 +135,6 @@ const InitiativeDrawer = ({
       year: resolvedYear,
       quarter: resolvedQuarter,
       isScheduled: form.isScheduled || Boolean(resolvedQuarter),
-      budget: form.budget ? Number(form.budget) : '',
     })
   }
 
@@ -142,13 +142,16 @@ const InitiativeDrawer = ({
     (sum, item) => sum + Number(item.amount || 0),
     0
   )
-  const totalRecurringMonthlyBase = form.recurringFees.reduce(
-    (sum, item) => sum + Number(item.monthly || 0),
-    0
-  )
-  const totalRecurringMonthly = totalRecurringMonthlyBase * Number(form.peopleCount || 1)
+  const totalRecurringMonthly = form.recurringFees.reduce((sum, item) => {
+    const amount = Number(item.amount || 0)
+    const peopleCount = Math.max(Number(item.peopleCount || 1), 1)
+    const perPersonAmount = amount * peopleCount
+    if (item.frequency === 'yearly') {
+      return sum + perPersonAmount / 12
+    }
+    return sum + perPersonAmount
+  }, 0)
   const totalRecurringAnnual = totalRecurringMonthly * 12
-  const totalAssets = 0
 
   if (!open) {
     return null
@@ -160,7 +163,7 @@ const InitiativeDrawer = ({
         className="flex h-[calc(100vh-6rem)] w-full max-w-2xl flex-col bg-white shadow-xl"
         onSubmit={handleSubmit}
       >
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 bg-white">
+        <div className="flex items-center justify-between border-b border-gray-300 px-6 py-4 bg-white">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">
               {mode === 'edit' ? 'Initiative details' : 'New initiative'}
@@ -180,8 +183,8 @@ const InitiativeDrawer = ({
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 bg-[rgb(248,248,250)]">
-          <div className="space-y-6">
-            <section className="mt-2 grid gap-6 lg:grid-cols-[140px_1fr]">
+          <div className="space-y-5">
+            <section className="grid gap-6 lg:grid-cols-2 rounded-lg border border-gray-300 bg-white p-4">
               <div className="space-y-3">
                 <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
                   <FiFlag /> STATUS
@@ -189,7 +192,7 @@ const InitiativeDrawer = ({
                 <select
                   value={form.status}
                   onChange={(event) => handleChange('status', event.target.value)}
-                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm"
+                  className="h-10 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm"
                 >
                   {STATUS_OPTIONS.map((status) => (
                     <option key={status}>{status}</option>
@@ -210,7 +213,7 @@ const InitiativeDrawer = ({
                       className={`rounded-md border px-4 py-2 text-sm font-semibold ${
                         form.priority === priority.value
                           ? 'border-[rgb(5,117,204)] bg-[rgb(236,245,255)] text-[rgb(5,117,204)]'
-                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
                       }`}
                     >
                       {priority.display}
@@ -220,7 +223,7 @@ const InitiativeDrawer = ({
               </div>
             </section>
 
-            <section className="grid gap-4 lg:grid-cols-2">
+            <section className="grid gap-4 lg:grid-cols-2 rounded-lg border border-gray-300 bg-white p-4">
               <div className="space-y-3">
                 <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
                   <FiCalendar /> SCHEDULE
@@ -230,13 +233,13 @@ const InitiativeDrawer = ({
                     <button
                       type="button"
                       onClick={() => handleChange('isScheduled', true)}
-                      className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-600"
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-600"
                     >
                       Not Scheduled
                     </button>
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-gray-200 p-3 w-full">
+                  <div className="rounded-lg border border-gray-300 p-3 w-full">
                     <div className="flex flex-col gap-2">
                       <div className="grid grid-cols-2 gap-2">
                         <select
@@ -244,7 +247,7 @@ const InitiativeDrawer = ({
                           onChange={(event) =>
                             handleScheduleSelect(event.target.value, form.quarter)
                           }
-                          className="h-9 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm"
+                          className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm"
                         >
                           {yearOptions.map((year) => (
                             <option key={year} value={year}>
@@ -257,7 +260,7 @@ const InitiativeDrawer = ({
                           onChange={(event) =>
                             handleScheduleSelect(form.year, event.target.value)
                           }
-                          className="h-9 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm"
+                          className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm"
                         >
                           {QUARTERS.map((quarter) => (
                             <option key={quarter} value={quarter}>
@@ -282,47 +285,33 @@ const InitiativeDrawer = ({
                   <FiUser /> CONTACT
                 </label>
                 <select
-                  value={form.contact}
-                  onChange={(event) => handleChange('contact', event.target.value)}
-                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm"
+                  value={form.contactId}
+                  onChange={(event) => handleChange('contactId', Number(event.target.value))}
+                  className="h-10 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm"
                 >
                   {CONTACTS.map((contact) => (
-                    <option key={contact}>{contact}</option>
+                    <option key={contact.id} value={contact.id}>
+                      {contact.full_name}
+                    </option>
                   ))}
                 </select>
               </div>
             </section>
 
-            <section className="grid gap-4 lg:grid-cols-2">
-              <div className="space-y-3">
-                <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
-                  <FiFileText /> TITLE
-                </label>
-                <input
-                  type="text"
-                  value={form.title}
-                  onChange={(event) => handleChange('title', event.target.value)}
-                  className="h-10 w-full rounded-md border border-gray-200 px-3 text-sm"
-                  required
-                />
-              </div>
-              <div className="space-y-3">
-                <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
-                  <FiUser /> NUMBER OF PERSONS
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.peopleCount}
-                  onChange={(event) =>
-                    handleChange('peopleCount', Number(event.target.value || 1))
-                  }
-                  className="h-10 w-full rounded-md border border-gray-200 px-3 text-sm"
-                />
-              </div>
+            <section className="space-y-3 rounded-lg border border-gray-300 bg-white p-4">
+              <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
+                <FiFileText /> TITLE
+              </label>
+              <input
+                type="text"
+                value={form.title}
+                onChange={(event) => handleChange('title', event.target.value)}
+                className="h-10 w-full rounded-md border border-gray-300 px-3 text-sm"
+                required
+              />
             </section>
 
-            <section className="space-y-3">
+            <section className="space-y-3 rounded-lg border border-gray-300 bg-white p-4">
               <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
                 <FiFileText /> EXECUTIVE SUMMARY
               </label>
@@ -330,17 +319,17 @@ const InitiativeDrawer = ({
                 rows="4"
                 value={form.summary}
                 onChange={(event) => handleChange('summary', event.target.value)}
-                className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                 placeholder="Write an executive summary for your client..."
               />
             </section>
 
-            <section className="space-y-4">
+            <section className="space-y-4 rounded-lg border border-gray-300 bg-white p-4">
               <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
                 <FiDollarSign /> BUDGET
               </label>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <div className="grid gap-4">
+                <div className="rounded-lg border border-gray-300 bg-white p-4">
                   <div className="flex items-center justify-between text-sm font-medium text-gray-700">
                     <span>One-time fees</span>
                     <button
@@ -349,7 +338,7 @@ const InitiativeDrawer = ({
                       onClick={() =>
                         handleChange('oneTimeFees', [
                           ...form.oneTimeFees,
-                          { id: createId(), name: 'New item', amount: 0, type: 'flat' },
+                          { id: createId(), title: 'New item', amount: 0 },
                         ])
                       }
                     >
@@ -358,57 +347,65 @@ const InitiativeDrawer = ({
                   </div>
                   <div className="mt-3 space-y-3">
                     {form.oneTimeFees.map((fee) => (
-                      <div key={fee.id} className="rounded-md border border-gray-200 p-3">
-                        <div className="text-xs font-medium text-gray-500">New item</div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <select
-                            value={fee.type || 'flat'}
+                      <div key={fee.id} className="flex items-center gap-3">
+                        <div className="grid w-full gap-2 sm:grid-cols-[1fr_140px]">
+                          <input
+                            type="text"
+                            value={fee.title || ''}
                             onChange={(event) =>
-                              handleChange(
-                                'oneTimeFees',
-                                form.oneTimeFees.map((item) =>
-                                  item.id === fee.id
-                                    ? { ...item, type: event.target.value }
-                                    : item
-                                )
-                              )
-                            }
-                            className="h-9 rounded-md border border-gray-200 px-2 pr-8 text-sm"
-                          >
-                            <option value="flat">Flat fee</option>
-                            <option value="asset">Per asset</option>
-                          </select>
-                          <div className="flex items-center gap-1 rounded-md border border-gray-200 px-2 h-9">
-                            <span className="text-sm text-gray-500">$</span>
-                            <input
-                              type="number"
-                              value={fee.amount}
-                              onChange={(event) =>
                                 handleChange(
                                   'oneTimeFees',
                                   form.oneTimeFees.map((item) =>
                                     item.id === fee.id
-                                      ? { ...item, amount: event.target.value }
+                                      ? { ...item, title: event.target.value }
                                       : item
                                   )
                                 )
                               }
-                              className="w-20 text-sm focus:outline-none"
+                              className="h-9 w-full rounded-md border border-gray-300 px-2 text-sm"
+                              placeholder="Title"
                             />
-                          </div>
+                            <div className="flex items-center gap-1 rounded-md border border-gray-300 px-2 h-9 w-full">
+                              <span className="text-sm text-gray-500">$</span>
+                              <input
+                                type="number"
+                                value={fee.amount}
+                                onChange={(event) =>
+                                  handleChange(
+                                    'oneTimeFees',
+                                    form.oneTimeFees.map((item) =>
+                                      item.id === fee.id
+                                        ? { ...item, amount: event.target.value }
+                                        : item
+                                    )
+                                  )
+                                }
+                            className="w-full text-sm focus:outline-none"
+                          />
                         </div>
-                        <div className="mt-2 text-xs text-gray-400">
-                          {fee.type === 'asset' ? 'Per asset' : 'Flat fee'}
                         </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleChange(
+                              'oneTimeFees',
+                              form.oneTimeFees.filter((item) => item.id !== fee.id)
+                            )
+                          }
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50"
+                          aria-label="Remove fee"
+                        >
+                          <FiTrash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     ))}
                     <div className="text-xs text-gray-500">
-                      Total one-time fee ${totalOneTime.toFixed(2)} - {totalAssets} assets
+                      Total one-time fee ${totalOneTime.toFixed(2)}
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-gray-200 bg-white p-4">
+                <div className="rounded-lg border border-gray-300 bg-white p-4">
                   <div className="flex items-center justify-between text-sm font-medium text-gray-700">
                     <span>Recurring fees</span>
                     <button
@@ -417,7 +414,13 @@ const InitiativeDrawer = ({
                       onClick={() =>
                         handleChange('recurringFees', [
                           ...form.recurringFees,
-                          { id: createId(), name: 'New item', monthly: 0, type: 'flat' },
+                          {
+                            id: createId(),
+                            title: 'New item',
+                            amount: 0,
+                            frequency: 'monthly',
+                            peopleCount: 1,
+                          },
                         ])
                       }
                     >
@@ -426,55 +429,109 @@ const InitiativeDrawer = ({
                   </div>
                   <div className="mt-3 space-y-3">
                     {form.recurringFees.map((fee) => (
-                      <div key={fee.id} className="rounded-md border border-gray-200 p-3">
-                        <div className="text-xs font-medium text-gray-500">New item</div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <select
-                            value={fee.type || 'flat'}
-                            onChange={(event) =>
-                              handleChange(
-                                'recurringFees',
-                                form.recurringFees.map((item) =>
-                                  item.id === fee.id
-                                    ? { ...item, type: event.target.value }
-                                    : item
-                                )
-                              )
-                            }
-                            className="h-9 rounded-md border border-gray-200 px-2 pr-8 text-sm"
-                          >
-                            <option value="flat">Flat fee</option>
-                            <option value="asset">Per asset</option>
-                          </select>
-                          <div className="flex items-center gap-1 rounded-md border border-gray-200 px-2 h-9">
-                            <span className="text-sm text-gray-500">$</span>
+                      <div key={fee.id} className="flex items-start gap-3">
+                        <div className="grid w-full gap-3">
+                          <div className="grid gap-3 sm:grid-cols-[1fr_180px] items-start">
                             <input
-                              type="number"
-                              value={fee.monthly}
-                              onChange={(event) =>
-                                handleChange(
-                                  'recurringFees',
-                                  form.recurringFees.map((item) =>
-                                    item.id === fee.id
-                                      ? { ...item, monthly: event.target.value }
-                                      : item
+                              type="text"
+                                value={fee.title || ''}
+                                onChange={(event) =>
+                                  handleChange(
+                                    'recurringFees',
+                                    form.recurringFees.map((item) =>
+                                      item.id === fee.id
+                                        ? { ...item, title: event.target.value }
+                                        : item
+                                    )
                                   )
-                                )
-                              }
-                              className="w-20 text-sm focus:outline-none"
-                            />
+                                }
+                                className="h-9 w-full rounded-md border border-gray-300 px-2 text-sm"
+                                placeholder="Title"
+                              />
+                              <div className="flex items-center gap-1 rounded-md border border-gray-300 px-2 h-9 w-full">
+                                <span className="text-sm text-gray-500">$</span>
+                                <input
+                                  type="number"
+                                  value={fee.amount}
+                                  onChange={(event) =>
+                                    handleChange(
+                                      'recurringFees',
+                                      form.recurringFees.map((item) =>
+                                        item.id === fee.id
+                                          ? { ...item, amount: event.target.value }
+                                          : item
+                                      )
+                                    )
+                                  }
+                                  className="w-full text-sm focus:outline-none"
+                                />
+                              </div>
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2 items-start">
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[11px] font-medium text-gray-500">
+                                  Frequency
+                                </span>
+                                <select
+                                  value={fee.frequency || 'monthly'}
+                                  onChange={(event) =>
+                                    handleChange(
+                                      'recurringFees',
+                                      form.recurringFees.map((item) =>
+                                        item.id === fee.id
+                                          ? { ...item, frequency: event.target.value }
+                                          : item
+                                      )
+                                    )
+                                  }
+                                  className="h-9 w-full rounded-md border border-gray-300 px-2 pr-10 text-sm"
+                                >
+                                  <option value="monthly">Monthly</option>
+                                  <option value="yearly">Yearly</option>
+                                </select>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[11px] font-medium text-gray-500">
+                                  No. of persons
+                                </span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={fee.peopleCount || 1}
+                                  onChange={(event) =>
+                                    handleChange(
+                                      'recurringFees',
+                                      form.recurringFees.map((item) =>
+                                        item.id === fee.id
+                                          ? {
+                                              ...item,
+                                              peopleCount: Number(event.target.value || 1),
+                                            }
+                                          : item
+                                      )
+                                    )
+                                  }
+                                  className="h-9 w-full rounded-md border border-gray-300 px-2 text-sm"
+                                  placeholder="1"
+                              />
+                            </div>
                           </div>
-                          <span className="text-xs text-gray-400">Recurring monthly</span>
                         </div>
-                        <div className="mt-2 text-xs text-gray-400">
-                          {fee.type === 'asset' ? 'Per asset' : 'Flat fee'}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleChange(
+                              'recurringFees',
+                              form.recurringFees.filter((item) => item.id !== fee.id)
+                            )
+                          }
+                          className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50"
+                          aria-label="Remove fee"
+                        >
+                          <FiTrash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     ))}
-                    <div className="text-xs text-gray-500">
-                      Per person ${totalRecurringMonthlyBase.toFixed(2)}/month - People{' '}
-                      {Number(form.peopleCount || 1)}
-                    </div>
                     <div className="mt-1 text-xs text-gray-500">
                       Monthly fee ${totalRecurringMonthly.toFixed(2)} - Annual fee $
                       {totalRecurringAnnual.toFixed(2)}
@@ -484,7 +541,7 @@ const InitiativeDrawer = ({
               </div>
             </section>
 
-            <section className="space-y-3">
+            <section className="space-y-3 rounded-lg border border-gray-300 bg-white p-4">
               <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
                 <FiLink2 /> LINKED ASSESSMENTS
               </label>
@@ -493,7 +550,7 @@ const InitiativeDrawer = ({
                   {form.linkedItems.map((item, index) => (
                     <div
                       key={`${item.assessmentId}-${item.responseId}-${index}`}
-                      className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700"
+                      className="flex items-center justify-between gap-3 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700"
                     >
                       <button
                         type="button"
@@ -501,23 +558,35 @@ const InitiativeDrawer = ({
                         className="text-left hover:text-[rgb(5,117,204)]"
                       >
                         <div className="font-semibold">
-                          {item.categoryTitle ? `${item.categoryTitle} - ` : ''}
-                          {item.title}
+                          {item.categoryTitle
+                            ? `${String(item.categoryTitle).replace(/\s*\(Copy\)\s*/gi, '').trim()} - `
+                            : ''}
+                          {String(item.title).replace(/\s*\(Copy\)\s*/gi, '').trim()}
                         </div>
-                        <div className="text-[11px] text-gray-500">
-                          Response: {item.responseLabel || 'Unknown'}
+                        <div className="mt-1">
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getResponseBadge(
+                              item.responseLabel
+                            )}`}
+                          >
+                            {item.responseLabel || 'Unknown'}
+                          </span>
                         </div>
                       </button>
                       <button
                         type="button"
-                        onClick={() =>
-                          setForm((prev) => ({
-                            ...prev,
-                            linkedItems: prev.linkedItems.filter(
-                              (entry, entryIndex) => entryIndex !== index
-                            ),
-                          }))
-                        }
+                              onClick={() =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  linkedItems: prev.linkedItems.filter(
+                                    (entry, entryIndex) => entryIndex !== index
+                                  ),
+                                  linkedSubcategoryIds: prev.linkedSubcategoryIds.filter(
+                                    (subcategoryId) =>
+                                      subcategoryId !== item.subcategoryId
+                                  ),
+                                }))
+                              }
                         className="text-red-600 hover:text-red-700"
                         aria-label="Remove linked assessment"
                       >
@@ -533,7 +602,7 @@ const InitiativeDrawer = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4">
+        <div className="flex items-center justify-between border-t border-gray-300 px-6 py-4">
           <div className="text-xs text-gray-500">
             {form.isScheduled
               ? `Scheduled for ${form.quarter} ${form.year}`
@@ -552,7 +621,7 @@ const InitiativeDrawer = ({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
             >
               Cancel
             </button>

@@ -24,7 +24,7 @@ const AssessmentPage = () => {
     if (organizationId) {
       return `/clients/${organizationId}`
     }
-    return '/clients'
+    return '/clients/select'
   }, [organizationId])
 
   const handleBack = () => {
@@ -42,7 +42,7 @@ const AssessmentPage = () => {
         organizationName || (organizationId ? `Client ${organizationId}` : 'Client')
       }
       activeNavId="assessments"
-      assessmentsPath={organizationId ? `/clients/${organizationId}` : '/clients'}
+      assessmentsPath={organizationId ? `/clients/${organizationId}` : '/clients/select'}
     >
       <div className="bg-[rgb(248,248,250)] min-h-[calc(100vh-6rem)] rounded-tl-xl overflow-hidden p-4 md:p-6">
         <PerformAssessment

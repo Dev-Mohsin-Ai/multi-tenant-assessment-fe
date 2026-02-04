@@ -33,7 +33,7 @@ const Login = () => {
     try {
       const data = await googleLogin(response.credential);
       localStorage.setItem("token", data.access_token);
-      navigate("/clients");
+      navigate("/clients/select");
     } catch (err) {
       console.error("Google login failed:", err.response?.data || err.message);
       setError({ api: "Google login failed" });
@@ -96,7 +96,7 @@ const Login = () => {
       console.log("Login success:", data);
 
       localStorage.setItem("token", data.access_token);
-      navigate("/clients");
+      navigate("/clients/select");
 
     } catch (err) {
       console.error("Login failed:", err.response?.data || err.message);

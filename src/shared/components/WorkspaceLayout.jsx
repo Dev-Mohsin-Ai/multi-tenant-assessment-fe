@@ -13,8 +13,8 @@ const WorkspaceLayout = ({
   activeLabel,
   clientName,
   activeNavId,
-  clientsPath = '/clients',
-  assessmentsPath = '/clients',
+  clientsPath = '/clients/select',
+  assessmentsPath = '/clients/select',
   templatesPath = '/templates',
 }) => {
   const navigate = useNavigate()

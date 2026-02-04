@@ -3,7 +3,7 @@ import Header from '../shared/components/Header'
 import Signup from '../features/auth/Signup'
 import Login from '../features/auth/Login'
 import { Route, Routes, Navigate, useLocation } from 'react-router-dom'
-import Clients from '../features/clients/Clients'
+import ClientSelectPage from '../features/clients/ClientSelectPage'
 import ClientDashboard from '../features/clients/ClientDashboard'
 import AssessmentPage from '../features/assessments/AssessmentPage'
 import ReadOnlyAssessmentPage from '../features/assessments/ReadOnlyAssessmentPage'
@@ -21,7 +21,15 @@ const RequireAuth = ({ children }) => {
 const PublicRoute = ({ children }) => {
   const token = localStorage.getItem('token')
   if (token) {
-    return <Navigate to='/clients' replace />
+    return <Navigate to='/clients/select' replace />
+  }
+  return children
+}
+
+const RequireClient = ({ children }) => {
+  const activeOrganizationId = localStorage.getItem('activeOrganizationId')
+  if (!activeOrganizationId) {
+    return <Navigate to='/clients/select' replace />
   }
   return children
 }
@@ -32,7 +40,7 @@ const App = () => {
     <div>
       <Header />
       <Routes>
-        <Route path='/' element={<Navigate to='/clients' replace />} />
+        <Route path='/' element={<Navigate to='/clients/select' replace />} />
         <Route
           path='/login'
           element={
@@ -53,18 +61,19 @@ const App = () => {
           path='/dashboard'
           element={
             <RequireAuth>
-              <Navigate to='/clients' replace />
+              <Navigate to='/clients/select' replace />
             </RequireAuth>
           }
         />
         <Route
-          path='/clients'
+          path='/clients/select'
           element={
             <RequireAuth>
-              <Clients />
+              <ClientSelectPage />
             </RequireAuth>
           }
         />
+        <Route path='/clients' element={<Navigate to='/clients/select' replace />} />
         <Route
           path='/clients/:organizationId'
           element={
@@ -77,7 +86,9 @@ const App = () => {
           path='/assessments/:assessmentId'
           element={
             <RequireAuth>
-              <AssessmentPage />
+              <RequireClient>
+                <AssessmentPage />
+              </RequireClient>
             </RequireAuth>
           }
         />
@@ -85,7 +96,9 @@ const App = () => {
           path='/assessments/:assessmentId/read-only'
           element={
             <RequireAuth>
-              <ReadOnlyAssessmentPage />
+              <RequireClient>
+                <ReadOnlyAssessmentPage />
+              </RequireClient>
             </RequireAuth>
           }
         />
@@ -93,7 +106,9 @@ const App = () => {
           path='/templates'
           element={
             <RequireAuth>
-              <TemplatesPage />
+              <RequireClient>
+                <TemplatesPage />
+              </RequireClient>
             </RequireAuth>
           }
         />
@@ -101,7 +116,9 @@ const App = () => {
           path='/roadmap'
           element={
             <RequireAuth>
-              <RoadmapPage />
+              <RequireClient>
+                <RoadmapPage />
+              </RequireClient>
             </RequireAuth>
           }
         />
@@ -111,7 +128,7 @@ const App = () => {
             location.pathname.startsWith('/login') || location.pathname.startsWith('/signup') ? (
               <Navigate to='/login' replace />
             ) : (
-              <Navigate to='/clients' replace />
+              <Navigate to='/clients/select' replace />
             )
           }
         />

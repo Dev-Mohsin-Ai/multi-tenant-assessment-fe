@@ -1,20 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   FiDownload,
-  FiFilter,
   FiPlus,
-  FiTrash2,
-  FiX,
-  FiLink2,
-  FiFolderPlus,
-  FiCalendar,
   FiFlag,
-  FiUser,
-  FiFileText,
-  FiTarget,
-  FiDollarSign,
-  FiLayers,
+  FiChevronLeft,
+  FiChevronRight,
+  FiCalendar,
 } from 'react-icons/fi'
 import { TbDragDrop2 } from 'react-icons/tb'
 import InitiativeDrawer from './InitiativeDrawer'
@@ -23,11 +15,18 @@ import {
   PRIORITY_OPTIONS,
   CONTACTS,
   QUARTERS,
-  createId,
   getQuarterStartDate,
 } from './initiativeConstants'
+import {
+  createInitiative,
+  deleteInitiative,
+  getInitiativeById,
+  getInitiatives,
+  linkSubcategories,
+  updateInitiative,
+} from '../../shared/services/initiativeService'
+import { mapInitiativeFromApi, mapInitiativeToApi } from './initiativeMapper'
 
-const INITIATIVE_STORAGE_KEY = 'roadmapInitiatives'
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
 const OPEN_INITIATIVE_KEY = 'openInitiativeId'
@@ -35,19 +34,17 @@ const OPEN_INITIATIVE_KEY = 'openInitiativeId'
 const Roadmap = () => {
   const navigate = useNavigate()
   const currentYear = new Date().getFullYear()
+  const currentQuarter = `Q${Math.floor(new Date().getMonth() / 3) + 1}`
   const years = useMemo(
     () => Array.from({ length: 5 }, (_, index) => currentYear + index),
     [currentYear]
   )
+  const [viewYear, setViewYear] = useState(currentYear)
+  const [viewQuarter, setViewQuarter] = useState(currentQuarter)
 
-  const [initiatives, setInitiatives] = useState(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem(INITIATIVE_STORAGE_KEY) || '[]')
-      return Array.isArray(stored) ? stored : []
-    } catch {
-      return []
-    }
-  })
+  const [initiatives, setInitiatives] = useState([])
+  const [loadingInitiatives, setLoadingInitiatives] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const [filters, setFilters] = useState({
     search: '',
     status: 'All',
@@ -89,24 +86,7 @@ const Roadmap = () => {
 
     const openId = localStorage.getItem(OPEN_INITIATIVE_KEY)
     if (openId) {
-      try {
-        const stored = JSON.parse(localStorage.getItem(INITIATIVE_STORAGE_KEY) || '[]')
-        const found = Array.isArray(stored)
-          ? stored.find((item) => String(item.id) === String(openId))
-          : null
-        if (found) {
-          localStorage.removeItem(OPEN_INITIATIVE_KEY)
-          return {
-            open: true,
-            mode: 'edit',
-            initiative: found,
-            presetYear: null,
-            presetQuarter: null,
-          }
-        }
-      } catch {
-        localStorage.removeItem(OPEN_INITIATIVE_KEY)
-      }
+      localStorage.removeItem(OPEN_INITIATIVE_KEY)
     }
 
     return {
@@ -118,16 +98,48 @@ const Roadmap = () => {
     }
   })
 
+  const loadInitiatives = useCallback(async () => {
+    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    if (!organizationId) {
+      setInitiatives([])
+      return
+    }
+    setLoadingInitiatives(true)
+    setLoadError('')
+    try {
+      const data = await getInitiatives({ organization_id: organizationId })
+      const list = Array.isArray(data) ? data : data?.initiatives || []
+      const detailed = await Promise.all(
+        list.map(async (item) => {
+          try {
+            return await getInitiativeById(item.id)
+          } catch {
+            return item
+          }
+        })
+      )
+      setInitiatives(detailed.map((item) => mapInitiativeFromApi(item)))
+    } catch {
+      setLoadError('Unable to load initiatives')
+    } finally {
+      setLoadingInitiatives(false)
+    }
+  }, [])
+
   useEffect(() => {
-    localStorage.setItem(INITIATIVE_STORAGE_KEY, JSON.stringify(initiatives))
-  }, [initiatives])
+    loadInitiatives()
+  }, [loadInitiatives])
 
   const filteredInitiatives = useMemo(() => {
     return initiatives.filter((initiative) => {
       const matchesSearch =
         filters.search.trim().length === 0 ||
-        initiative.title.toLowerCase().includes(filters.search.toLowerCase()) ||
-        initiative.summary.toLowerCase().includes(filters.search.toLowerCase())
+        String(initiative.title || '')
+          .toLowerCase()
+          .includes(filters.search.toLowerCase()) ||
+        String(initiative.summary || '')
+          .toLowerCase()
+          .includes(filters.search.toLowerCase())
       const matchesStatus =
         filters.status === 'All' || initiative.status === filters.status
       const matchesPriority =
@@ -136,7 +148,7 @@ const Roadmap = () => {
         filters.year === 'All' || String(initiative.year) === String(filters.year)
       const matchesPoc =
         filters.poc === 'All' ||
-        (initiative.contact || '').toLowerCase() === filters.poc.toLowerCase()
+        String(initiative.contactId || '') === String(filters.poc)
       return (
         matchesSearch && matchesStatus && matchesPriority && matchesYear && matchesPoc
       )
@@ -145,6 +157,9 @@ const Roadmap = () => {
 
   const scheduledInitiatives = filteredInitiatives.filter(
     (initiative) => initiative.isScheduled
+  )
+  const scheduledForYear = scheduledInitiatives.filter(
+    (initiative) => Number(initiative.year) === Number(viewYear)
   )
   const unscheduledInitiatives = filteredInitiatives.filter(
     (initiative) => !initiative.isScheduled
@@ -159,7 +174,7 @@ const Roadmap = () => {
 
   const initiativesBySlot = useMemo(() => {
     const map = new Map()
-    scheduledInitiatives.forEach((initiative) => {
+    scheduledForYear.forEach((initiative) => {
       const key = `${initiative.year}-${initiative.quarter}`
       if (!map.has(key)) {
         map.set(key, [])
@@ -173,23 +188,63 @@ const Roadmap = () => {
       )
     })
     return map
-  }, [scheduledInitiatives])
+  }, [scheduledForYear])
 
   const initiativesByYear = useMemo(() => {
     const map = new Map()
-    scheduledInitiatives.forEach((initiative) => {
+    scheduledForYear.forEach((initiative) => {
       if (!map.has(initiative.year)) {
         map.set(initiative.year, [])
       }
       map.get(initiative.year).push(initiative)
     })
     return map
-  }, [scheduledInitiatives])
+  }, [scheduledForYear])
 
-  const visibleYears = useMemo(
-    () => years.filter((year) => (initiativesByYear.get(year) || []).length > 0),
-    [years, initiativesByYear]
-  )
+  const visibleYears = useMemo(() => {
+    const hasItems = (initiativesByYear.get(viewYear) || []).length > 0
+    return hasItems ? [viewYear] : [viewYear]
+  }, [initiativesByYear, viewYear])
+
+  const handleQuarterShift = (direction) => {
+    const index = QUARTERS.indexOf(viewQuarter)
+    const nextIndex = index + direction
+    if (nextIndex < 0) {
+      setViewQuarter(QUARTERS[QUARTERS.length - 1])
+      setViewYear((prev) => prev - 1)
+      return
+    }
+    if (nextIndex >= QUARTERS.length) {
+      setViewQuarter(QUARTERS[0])
+      setViewYear((prev) => prev + 1)
+      return
+    }
+    setViewQuarter(QUARTERS[nextIndex])
+  }
+
+  const handleCurrentQuarter = () => {
+    setViewQuarter(currentQuarter)
+    setViewYear(currentYear)
+  }
+
+  const getPrevQuarter = () => {
+    const index = QUARTERS.indexOf(viewQuarter)
+    if (index <= 0) {
+      return { quarter: QUARTERS[QUARTERS.length - 1], year: viewYear - 1 }
+    }
+    return { quarter: QUARTERS[index - 1], year: viewYear }
+  }
+
+  const getNextQuarter = () => {
+    const index = QUARTERS.indexOf(viewQuarter)
+    if (index >= QUARTERS.length - 1) {
+      return { quarter: QUARTERS[0], year: viewYear + 1 }
+    }
+    return { quarter: QUARTERS[index + 1], year: viewYear }
+  }
+
+  const prevQuarter = getPrevQuarter()
+  const nextQuarter = getNextQuarter()
 
   const handleOpenCreate = () => {
     setDrawerState({
@@ -228,45 +283,83 @@ const Roadmap = () => {
     })
   }
 
-  const handleSaveInitiative = (payload) => {
-    if (drawerState.mode === 'edit' && drawerState.initiative) {
-      setInitiatives((prev) =>
-        prev.map((item) => (item.id === drawerState.initiative.id ? payload : item))
-      )
-    } else {
-      setInitiatives((prev) => {
-        const existingIds = new Set(prev.map((item) => String(item.id)))
-        const resolvedPayload = existingIds.has(String(payload.id))
-          ? { ...payload, id: createId() }
-          : payload
-        const withOrder = { ...resolvedPayload, order: resolvedPayload.order ?? Date.now() }
-        if (pendingLink) {
-          const linkEntry = {
-            assessmentId: pendingLink.assessmentId,
-            responseId: pendingLink.responseId,
-            title: pendingLink.title,
-            responseLabel: pendingLink.responseLabel,
-            categoryTitle: pendingLink.categoryTitle,
-          }
-          withOrder.linkedItems = [...(withOrder.linkedItems || []), linkEntry]
-
-          const linksRaw = localStorage.getItem(INITIATIVE_LINKS_KEY)
-          const links = linksRaw ? JSON.parse(linksRaw) : {}
-          const assessmentLinks = links[pendingLink.assessmentId] || {}
-          assessmentLinks[pendingLink.responseId] = withOrder.id
-          links[pendingLink.assessmentId] = assessmentLinks
-          localStorage.setItem(INITIATIVE_LINKS_KEY, JSON.stringify(links))
-          localStorage.removeItem(PENDING_LINK_KEY)
-          setPendingLink(null)
-        }
-        return [withOrder, ...prev]
-      })
+  const handleSaveInitiative = async (payload) => {
+    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    if (!organizationId) {
+      setLoadError('Select a client before creating initiatives.')
+      return
     }
-    handleCloseDrawer()
+    if (drawerState.mode === 'edit' && drawerState.initiative) {
+      try {
+        const updated = await updateInitiative(
+          drawerState.initiative.id,
+          mapInitiativeToApi(payload, organizationId)
+        )
+        const mapped = mapInitiativeFromApi(updated, {
+          linkedItemsById: { [payload.id]: payload.linkedItems || [] },
+        })
+        setInitiatives((prev) =>
+          prev.map((item) => (item.id === drawerState.initiative.id ? mapped : item))
+        )
+        handleCloseDrawer()
+      } catch {
+        setLoadError('Unable to update initiative')
+      }
+      return
+    }
+
+    try {
+      const created = await createInitiative(mapInitiativeToApi(payload, organizationId))
+      const mapped = mapInitiativeFromApi(created, {
+        linkedItemsById: { [created.id]: payload.linkedItems || [] },
+      })
+      if (pendingLink?.subcategoryId && created?.id) {
+        try {
+          await linkSubcategories(created.id, [pendingLink.subcategoryId])
+        } catch {
+          // keep local link even if API link fails
+        }
+      }
+      if (pendingLink) {
+        const linkEntry = {
+          assessmentId: pendingLink.assessmentId,
+          responseId: pendingLink.responseId,
+          title: pendingLink.title,
+          responseLabel: pendingLink.responseLabel,
+          categoryTitle: pendingLink.categoryTitle,
+        }
+        mapped.linkedItems = [...(mapped.linkedItems || []), linkEntry]
+        if (pendingLink.subcategoryId) {
+          mapped.linkedSubcategoryIds = Array.from(
+            new Set([
+              ...(mapped.linkedSubcategoryIds || []),
+              pendingLink.subcategoryId,
+            ])
+          )
+        }
+        const linksRaw = localStorage.getItem(INITIATIVE_LINKS_KEY)
+        const links = linksRaw ? JSON.parse(linksRaw) : {}
+        const assessmentLinks = links[pendingLink.assessmentId] || {}
+        assessmentLinks[pendingLink.responseId] = mapped.id
+        links[pendingLink.assessmentId] = assessmentLinks
+        localStorage.setItem(INITIATIVE_LINKS_KEY, JSON.stringify(links))
+        localStorage.removeItem(PENDING_LINK_KEY)
+        setPendingLink(null)
+      }
+      setInitiatives((prev) => [mapped, ...prev])
+      handleCloseDrawer()
+    } catch {
+      setLoadError('Unable to create initiative')
+    }
   }
 
-  const handleDelete = (id) => {
-    setInitiatives((prev) => prev.filter((item) => item.id !== id))
+  const handleDelete = async (id) => {
+    try {
+      await deleteInitiative(id)
+      setInitiatives((prev) => prev.filter((item) => item.id !== id))
+    } catch {
+      setLoadError('Unable to delete initiative')
+    }
     if (drawerState.initiative?.id === id) {
       handleCloseDrawer()
     }
@@ -276,6 +369,22 @@ const Roadmap = () => {
     navigate(`/assessments/${item.assessmentId}/read-only`, {
       state: { responseId: item.responseId, backTo: '/roadmap' },
     })
+  }
+
+  const handleStatusUpdate = async (initiative, status) => {
+    const updated = { ...initiative, status }
+    setInitiatives((prev) =>
+      prev.map((item) => (item.id === initiative.id ? updated : item))
+    )
+    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    if (!organizationId) {
+      return
+    }
+    try {
+      await updateInitiative(initiative.id, mapInitiativeToApi(updated, organizationId))
+    } catch {
+      setLoadError('Unable to update initiative status')
+    }
   }
 
   const handleDragStart = (event, initiative) => {
@@ -301,16 +410,30 @@ const Roadmap = () => {
           return item
         }
         const startDate = getQuarterStartDate(year, quarter)
-        const updated = {
+        return {
           ...item,
           isScheduled: true,
           year,
           quarter,
           startDate,
         }
-        return updated
       })
     )
+    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    const moved = initiatives.find((item) => String(item.id) === String(id))
+    if (organizationId && moved) {
+      const startDate = getQuarterStartDate(year, quarter)
+      const updated = {
+        ...moved,
+        isScheduled: true,
+        year,
+        quarter,
+        startDate,
+      }
+      updateInitiative(id, mapInitiativeToApi(updated, organizationId)).catch(() => {
+        setLoadError('Unable to update schedule')
+      })
+    }
     if (drawerState.open && drawerState.initiative?.id === id) {
       const startDate = getQuarterStartDate(year, quarter)
       setDrawerState((prev) => ({
@@ -344,6 +467,14 @@ const Roadmap = () => {
         }
       })
     )
+    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    const moved = initiatives.find((item) => String(item.id) === String(id))
+    if (organizationId && moved) {
+      const updated = { ...moved, isScheduled: false }
+      updateInitiative(id, mapInitiativeToApi(updated, organizationId)).catch(() => {
+        setLoadError('Unable to update schedule')
+      })
+    }
     setDraggingId(null)
   }
 
@@ -401,7 +532,62 @@ const Roadmap = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-2 justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <button
+              type="button"
+              onClick={() => handleQuarterShift(-1)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              aria-label="Previous quarter"
+            >
+              <FiChevronLeft />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setViewQuarter(prevQuarter.quarter)
+                setViewYear(prevQuarter.year)
+              }}
+              className="text-sm font-semibold text-gray-500 hover:text-[rgb(5,117,204)]"
+            >
+              {prevQuarter.quarter}, {prevQuarter.year}
+            </button>
+          </div>
+
+          <div className="text-base font-semibold text-[rgb(5,117,204)]">
+            {viewQuarter}, {viewYear}
+          </div>
+
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <button
+              type="button"
+              onClick={() => {
+                setViewQuarter(nextQuarter.quarter)
+                setViewYear(nextQuarter.year)
+              }}
+              className="text-sm font-semibold text-gray-500 hover:text-[rgb(5,117,204)]"
+            >
+              {nextQuarter.quarter}, {nextQuarter.year}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuarterShift(1)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              aria-label="Next quarter"
+            >
+              <FiChevronRight />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleCurrentQuarter}
+            className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-[rgb(5,117,204)] hover:bg-gray-50"
+          >
+            <FiCalendar /> Current quarter
+          </button>
+        </div>
         <button
           type="button"
           className="inline-flex items-center gap-2 rounded-md bg-[rgb(5,117,204)] px-4 py-2 text-sm font-medium text-white hover:bg-[rgb(0,97,170)]"
@@ -458,11 +644,23 @@ const Roadmap = () => {
           >
             <option value="All">All poc</option>
             {CONTACTS.map((contact) => (
-              <option key={contact}>{contact}</option>
+              <option key={contact.id} value={contact.id}>
+                {contact.full_name}
+              </option>
             ))}
           </select>
         </div>
       </div>
+      {loadError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {loadError}
+        </div>
+      )}
+      {loadingInitiatives && (
+        <div className="rounded-md border border-gray-200 bg-white px-4 py-2 text-sm text-gray-500">
+          Loading initiatives...
+        </div>
+      )}
 
       {unscheduledInitiatives.length > 0 && (
         <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 shadow-sm">
@@ -480,10 +678,15 @@ const Roadmap = () => {
               const totalRecurringMonthly = column.reduce(
                 (sum, item) =>
                   sum +
-                  (item.recurringFees || []).reduce(
-                    (inner, fee) => inner + Number(fee.monthly || 0),
-                    0
-                  ),
+                  (item.recurringFees || []).reduce((inner, fee) => {
+                    const amount = Number(fee.amount || 0)
+                    const peopleCount = Math.max(Number(fee.peopleCount || 1), 1)
+                    const perPersonAmount = amount * peopleCount
+                    if (fee.frequency === 'yearly') {
+                      return inner + perPersonAmount / 12
+                    }
+                    return inner + perPersonAmount
+                  }, 0),
                 0
               )
               return (
@@ -508,12 +711,6 @@ const Roadmap = () => {
                     ${totalOneTime.toFixed(2)} | ${totalRecurringMonthly.toFixed(2)}/M | $
                     {(totalRecurringMonthly * 12).toFixed(2)}/Y
                   </div>
-                  <div className="mt-1 text-xs font-semibold text-gray-700">
-                    Year-1 total ${(
-                      totalOneTime +
-                      totalRecurringMonthly * 12
-                    ).toFixed(2)}
-                  </div>
                   <div className="mt-3 space-y-3 max-h-80 overflow-y-auto pr-1">
                     {column.map((initiative) => (
                       <InitiativeCard
@@ -526,13 +723,7 @@ const Roadmap = () => {
                         onDropOnCard={(sourceId) =>
                           handleReorderInQuarter(sourceId, initiative.id)
                         }
-                        onStatusChange={(status) =>
-                          setInitiatives((prev) =>
-                            prev.map((item) =>
-                              item.id === initiative.id ? { ...item, status } : item
-                            )
-                          )
-                        }
+                        onStatusChange={(status) => handleStatusUpdate(initiative, status)}
                       />
                     ))}
                   </div>
@@ -570,10 +761,15 @@ const Roadmap = () => {
                     const totalRecurringMonthly = items.reduce(
                       (sum, item) =>
                         sum +
-                        (item.recurringFees || []).reduce(
-                          (inner, fee) => inner + Number(fee.monthly || 0),
-                          0
-                        ),
+                        (item.recurringFees || []).reduce((inner, fee) => {
+                          const amount = Number(fee.amount || 0)
+                          const peopleCount = Math.max(Number(fee.peopleCount || 1), 1)
+                          const perPersonAmount = amount * peopleCount
+                          if (fee.frequency === 'yearly') {
+                            return inner + perPersonAmount / 12
+                          }
+                          return inner + perPersonAmount
+                        }, 0),
                       0
                     )
                     return (
@@ -599,12 +795,6 @@ const Roadmap = () => {
                           ${totalOneTime.toFixed(2)} | ${totalRecurringMonthly.toFixed(2)}/M |
                           ${(totalRecurringMonthly * 12).toFixed(2)}/Y
                         </div>
-                        <div className="mb-3 text-xs font-semibold text-gray-700">
-                          Year-1 total ${(
-                            totalOneTime +
-                            totalRecurringMonthly * 12
-                          ).toFixed(2)}
-                        </div>
                         <div className="space-y-3 max-h-105 overflow-y-auto pr-1">
                           {items.length === 0 ? (
                             <div className="rounded-md border border-dashed border-gray-200 bg-white px-3 py-6 text-center text-xs text-gray-400">
@@ -623,11 +813,7 @@ const Roadmap = () => {
                                   handleReorderInQuarter(sourceId, initiative.id)
                                 }
                                 onStatusChange={(status) =>
-                                  setInitiatives((prev) =>
-                                    prev.map((item) =>
-                                      item.id === initiative.id ? { ...item, status } : item
-                                    )
-                                  )
+                                  handleStatusUpdate(initiative, status)
                                 }
                               />
                             ))
@@ -677,10 +863,16 @@ const InitiativeCard = ({
     (sum, item) => sum + Number(item.amount || 0),
     0
   )
-  const totalRecurringMonthly = (initiative.recurringFees || []).reduce(
-    (sum, item) => sum + Number(item.monthly || 0),
-    0
-  )
+  const totalRecurringMonthly = (initiative.recurringFees || []).reduce((sum, item) => {
+    const amount = Number(item.amount || 0)
+    const peopleCount = Math.max(Number(item.peopleCount || 1), 1)
+    const perPersonAmount = amount * peopleCount
+    if (item.frequency === 'yearly') {
+      return sum + perPersonAmount / 12
+    }
+    return sum + perPersonAmount
+  }, 0)
+  const totalRecurringAnnual = totalRecurringMonthly * 12
   return (
     <div
       role="button"
@@ -755,12 +947,16 @@ const InitiativeCard = ({
       </div>
       <div className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-600">
         <div className="flex items-center justify-between">
-          <span className="font-semibold text-gray-700">Total one-time fees:</span>
+          <span className="font-semibold text-gray-700">Total one-time fee:</span>
           <span>${totalOneTime.toFixed(2)}</span>
         </div>
         <div className="mt-2 flex items-center justify-between">
-          <span className="font-semibold text-gray-700">Total recurring fees:</span>
+          <span className="font-semibold text-gray-700">Monthly recurring fees:</span>
           <span>${totalRecurringMonthly.toFixed(2)}/month</span>
+        </div>
+        <div className="mt-2 flex items-center justify-between">
+          <span className="font-semibold text-gray-700">Annual recurring fees:</span>
+          <span>${totalRecurringAnnual.toFixed(2)}/year</span>
         </div>
       </div>
     </div>

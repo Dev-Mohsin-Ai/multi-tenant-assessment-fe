@@ -21,6 +21,11 @@ import {
 } from './templateUtils'
 
 const TemplatesPage = () => {
+  const activeClientName = localStorage.getItem('activeOrganizationName') || 'Client'
+  const activeOrganizationId = localStorage.getItem('activeOrganizationId')
+  const assessmentsPath = activeOrganizationId
+    ? `/clients/${activeOrganizationId}`
+    : '/clients/select'
   const [templates, setTemplates] = useState([])
   const [selectedTemplateId, setSelectedTemplateId] = useState(null)
   const [formData, setFormData] = useState({ title: '', categories: [] })
@@ -401,8 +406,9 @@ const TemplatesPage = () => {
   return (
     <WorkspaceLayout
       activeLabel="Templates"
-      clientName="Template Library"
+      clientName={activeClientName}
       activeNavId="templates"
+      assessmentsPath={assessmentsPath}
     >
       <div className="bg-[rgb(248,248,250)] min-h-[calc(100vh-6rem)] rounded-tl-xl overflow-hidden">
         <TemplatesHeader

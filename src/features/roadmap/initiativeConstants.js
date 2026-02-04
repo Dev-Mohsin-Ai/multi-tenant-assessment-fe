@@ -15,8 +15,45 @@ export const PRIORITY_OPTIONS = [
   { label: 'High', value: 'High', display: '!!!' },
 ]
 
-export const CONTACTS = ['Hamza Abid', 'Sara Ahmed', 'Ali Khan', 'Usman Raza']
+export const CONTACTS = [
+  { id: 1, full_name: 'Hamza Abid' },
+  { id: 2, full_name: 'Sara Ahmed' },
+  { id: 3, full_name: 'Ali Khan' },
+  { id: 4, full_name: 'Usman Raza' },
+]
 export const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4']
+
+export const STATUS_TO_API = {
+  Open: 'open',
+  Proposed: 'proposed',
+  Approved: 'approved',
+  'In Progress': 'in_progress',
+  Completed: 'completed',
+  'On Hold': 'on_hold',
+  Declined: 'declined',
+}
+
+export const STATUS_FROM_API = Object.entries(STATUS_TO_API).reduce(
+  (acc, [label, key]) => {
+    acc[key] = label
+    return acc
+  },
+  {}
+)
+
+export const PRIORITY_TO_API = {
+  Minimal: 0,
+  Low: 1,
+  Medium: 2,
+  High: 3,
+}
+
+export const PRIORITY_FROM_API = {
+  0: 'Minimal',
+  1: 'Low',
+  2: 'Medium',
+  3: 'High',
+}
 
 export const createId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
