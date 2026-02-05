@@ -291,6 +291,13 @@ const Roadmap = () => {
     }
     if (drawerState.mode === 'edit' && drawerState.initiative) {
       try {
+        const previousLinkedItems = Array.isArray(drawerState.initiative.linkedItems)
+          ? drawerState.initiative.linkedItems
+          : []
+        const nextLinkedItems = Array.isArray(payload.linkedItems) ? payload.linkedItems : []
+        const getResponseKey = (item) =>
+          String(item?.responseId ?? item?.subcategoryId ?? item?.id ?? '')
+
         const updated = await updateInitiative(
           drawerState.initiative.id,
           mapInitiativeToApi(payload, organizationId)
@@ -298,6 +305,49 @@ const Roadmap = () => {
         const mapped = mapInitiativeFromApi(updated, {
           linkedItemsById: { [payload.id]: payload.linkedItems || [] },
         })
+
+        try {
+          const linksRaw = localStorage.getItem(INITIATIVE_LINKS_KEY)
+          const links = linksRaw ? JSON.parse(linksRaw) : {}
+
+          const nextResponseKeys = new Set(
+            nextLinkedItems.map(getResponseKey).filter(Boolean)
+          )
+
+          previousLinkedItems.forEach((item) => {
+            const assessmentId = item?.assessmentId
+            const responseKey = getResponseKey(item)
+            if (!assessmentId || !responseKey || nextResponseKeys.has(responseKey)) {
+              return
+            }
+            const assessmentLinks = links?.[assessmentId]
+            if (!assessmentLinks) {
+              return
+            }
+            if (
+              String(assessmentLinks[responseKey]) === String(drawerState.initiative.id)
+            ) {
+              delete assessmentLinks[responseKey]
+            }
+            links[assessmentId] = assessmentLinks
+          })
+
+          nextLinkedItems.forEach((item) => {
+            const assessmentId = item?.assessmentId
+            const responseKey = getResponseKey(item)
+            if (!assessmentId || !responseKey) {
+              return
+            }
+            const assessmentLinks = links?.[assessmentId] || {}
+            assessmentLinks[responseKey] = drawerState.initiative.id
+            links[assessmentId] = assessmentLinks
+          })
+
+          localStorage.setItem(INITIATIVE_LINKS_KEY, JSON.stringify(links))
+        } catch (error) {
+          void error
+        }
+
         setInitiatives((prev) =>
           prev.map((item) => (item.id === drawerState.initiative.id ? mapped : item))
         )

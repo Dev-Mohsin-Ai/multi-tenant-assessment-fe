@@ -649,6 +649,18 @@ const PerformAssessment = ({
   }
 
   const handleSaveInitiativeFromAssessment = (updated) => {
+    const previous = initiativeEditor.initiative
+    const previousItems = Array.isArray(previous?.linkedItems) ? previous.linkedItems : []
+    const nextItems = Array.isArray(updated?.linkedItems) ? updated.linkedItems : []
+
+    const getResponseKey = (item) =>
+      String(item?.responseId ?? item?.subcategoryId ?? item?.id ?? '')
+
+    const nextResponseKeys = new Set(nextItems.map(getResponseKey).filter(Boolean))
+    const removedResponseKeys = previousItems
+      .map(getResponseKey)
+      .filter((key) => key && !nextResponseKeys.has(key))
+
     const organizationId =
       assessment?.organizationId || Number(localStorage.getItem('activeOrganizationId'))
     if (organizationId) {
@@ -656,6 +668,25 @@ const PerformAssessment = ({
         () => {}
       )
     }
+
+    if (assessmentId) {
+      const resolvedInitiativeId = updated?.id
+      const nextLinks = { ...initiativeLinks }
+
+      removedResponseKeys.forEach((responseKey) => {
+        if (String(nextLinks[responseKey]) === String(resolvedInitiativeId)) {
+          delete nextLinks[responseKey]
+        }
+      })
+
+      nextResponseKeys.forEach((responseKey) => {
+        nextLinks[responseKey] = resolvedInitiativeId
+      })
+
+      setInitiativeLinks(nextLinks)
+      saveLinksForAssessment(assessmentId, nextLinks)
+    }
+
     setInitiatives((prev) =>
       prev.map((item) =>
         String(item.id) === String(updated.id) ? updated : item
