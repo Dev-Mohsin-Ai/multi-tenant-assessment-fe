@@ -35,12 +35,44 @@ const Roadmap = () => {
   const navigate = useNavigate()
   const currentYear = new Date().getFullYear()
   const currentQuarter = `Q${Math.floor(new Date().getMonth() / 3) + 1}`
+  const currentQuarterIndex = Math.max(0, QUARTERS.indexOf(currentQuarter))
   const years = useMemo(
     () => Array.from({ length: 5 }, (_, index) => currentYear + index),
     [currentYear]
   )
-  const [viewYear, setViewYear] = useState(currentYear)
-  const [viewQuarter, setViewQuarter] = useState(currentQuarter)
+
+  const shiftQuarter = (start, delta) => {
+    const quarterCount = QUARTERS.length
+    let year = Number(start.year)
+    let quarterIndex = Number(start.quarterIndex) + Number(delta)
+
+    while (quarterIndex < 0) {
+      quarterIndex += quarterCount
+      year -= 1
+    }
+
+    while (quarterIndex >= quarterCount) {
+      quarterIndex -= quarterCount
+      year += 1
+    }
+
+    return { year, quarterIndex }
+  }
+
+  const [windowStart, setWindowStart] = useState(() => ({
+    year: currentYear,
+    quarterIndex: currentQuarterIndex,
+  }))
+
+  const windowSlots = useMemo(() => {
+    return Array.from({ length: 4 }, (_, offset) => {
+      const slot = shiftQuarter(windowStart, offset)
+      return { year: slot.year, quarter: QUARTERS[slot.quarterIndex] }
+    })
+  }, [windowStart])
+
+  const prevUpcoming = useMemo(() => shiftQuarter(windowStart, -1), [windowStart])
+  const nextUpcoming = useMemo(() => shiftQuarter(windowStart, 4), [windowStart])
 
   const [initiatives, setInitiatives] = useState([])
   const [loadingInitiatives, setLoadingInitiatives] = useState(false)
@@ -158,9 +190,6 @@ const Roadmap = () => {
   const scheduledInitiatives = filteredInitiatives.filter(
     (initiative) => initiative.isScheduled
   )
-  const scheduledForYear = scheduledInitiatives.filter(
-    (initiative) => Number(initiative.year) === Number(viewYear)
-  )
   const unscheduledInitiatives = filteredInitiatives.filter(
     (initiative) => !initiative.isScheduled
   )
@@ -174,7 +203,7 @@ const Roadmap = () => {
 
   const initiativesBySlot = useMemo(() => {
     const map = new Map()
-    scheduledForYear.forEach((initiative) => {
+    scheduledInitiatives.forEach((initiative) => {
       const key = `${initiative.year}-${initiative.quarter}`
       if (!map.has(key)) {
         map.set(key, [])
@@ -188,71 +217,19 @@ const Roadmap = () => {
       )
     })
     return map
-  }, [scheduledForYear])
-
-  const initiativesByYear = useMemo(() => {
-    const map = new Map()
-    scheduledForYear.forEach((initiative) => {
-      if (!map.has(initiative.year)) {
-        map.set(initiative.year, [])
-      }
-      map.get(initiative.year).push(initiative)
-    })
-    return map
-  }, [scheduledForYear])
-
-  const visibleYears = useMemo(() => {
-    const hasItems = (initiativesByYear.get(viewYear) || []).length > 0
-    return hasItems ? [viewYear] : [viewYear]
-  }, [initiativesByYear, viewYear])
-
-  const handleQuarterShift = (direction) => {
-    const index = QUARTERS.indexOf(viewQuarter)
-    const nextIndex = index + direction
-    if (nextIndex < 0) {
-      setViewQuarter(QUARTERS[QUARTERS.length - 1])
-      setViewYear((prev) => prev - 1)
-      return
-    }
-    if (nextIndex >= QUARTERS.length) {
-      setViewQuarter(QUARTERS[0])
-      setViewYear((prev) => prev + 1)
-      return
-    }
-    setViewQuarter(QUARTERS[nextIndex])
-  }
+  }, [scheduledInitiatives])
 
   const handleCurrentQuarter = () => {
-    setViewQuarter(currentQuarter)
-    setViewYear(currentYear)
+    setWindowStart({ year: currentYear, quarterIndex: currentQuarterIndex })
   }
-
-  const getPrevQuarter = () => {
-    const index = QUARTERS.indexOf(viewQuarter)
-    if (index <= 0) {
-      return { quarter: QUARTERS[QUARTERS.length - 1], year: viewYear - 1 }
-    }
-    return { quarter: QUARTERS[index - 1], year: viewYear }
-  }
-
-  const getNextQuarter = () => {
-    const index = QUARTERS.indexOf(viewQuarter)
-    if (index >= QUARTERS.length - 1) {
-      return { quarter: QUARTERS[0], year: viewYear + 1 }
-    }
-    return { quarter: QUARTERS[index + 1], year: viewYear }
-  }
-
-  const prevQuarter = getPrevQuarter()
-  const nextQuarter = getNextQuarter()
 
   const handleOpenCreate = () => {
     setDrawerState({
       open: true,
       mode: 'create',
       initiative: null,
-      presetYear: null,
-      presetQuarter: null,
+      presetYear: windowStart.year,
+      presetQuarter: QUARTERS[windowStart.quarterIndex],
     })
   }
 
@@ -584,48 +561,24 @@ const Roadmap = () => {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => handleQuarterShift(-1)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              onClick={() => setWindowStart(shiftQuarter(windowStart, -1))}
+              className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
               aria-label="Previous quarter"
             >
               <FiChevronLeft />
+              {QUARTERS[prevUpcoming.quarterIndex]} {prevUpcoming.year}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setViewQuarter(prevQuarter.quarter)
-                setViewYear(prevQuarter.year)
-              }}
-              className="text-sm font-semibold text-gray-500 hover:text-[rgb(5,117,204)]"
-            >
-              {prevQuarter.quarter}, {prevQuarter.year}
-            </button>
-          </div>
 
-          <div className="text-base font-semibold text-[rgb(5,117,204)]">
-            {viewQuarter}, {viewYear}
-          </div>
-
-          <div className="flex items-center gap-2 text-sm text-gray-500">
             <button
               type="button"
-              onClick={() => {
-                setViewQuarter(nextQuarter.quarter)
-                setViewYear(nextQuarter.year)
-              }}
-              className="text-sm font-semibold text-gray-500 hover:text-[rgb(5,117,204)]"
-            >
-              {nextQuarter.quarter}, {nextQuarter.year}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuarterShift(1)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              onClick={() => setWindowStart(shiftQuarter(windowStart, 1))}
+              className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
               aria-label="Next quarter"
             >
+              {QUARTERS[nextUpcoming.quarterIndex]} {nextUpcoming.year}
               <FiChevronRight />
             </button>
           </div>
@@ -637,21 +590,29 @@ const Roadmap = () => {
           >
             <FiCalendar /> Current quarter
           </button>
+
+          <div className="text-sm font-semibold text-[rgb(5,117,204)]">
+            Showing {windowSlots[0].quarter} {windowSlots[0].year} –{' '}
+            {windowSlots[windowSlots.length - 1].quarter}{' '}
+            {windowSlots[windowSlots.length - 1].year}
+          </div>
         </div>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-md bg-[rgb(5,117,204)] px-4 py-2 text-sm font-medium text-white hover:bg-[rgb(0,97,170)]"
-          onClick={handleOpenCreate}
-        >
-          <FiPlus /> Add Initiative
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          onClick={() => window.print()}
-        >
-          <FiDownload /> Export
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-md bg-[rgb(5,117,204)] px-4 py-2 text-sm font-medium text-white hover:bg-[rgb(0,97,170)]"
+            onClick={handleOpenCreate}
+          >
+            <FiPlus /> Add Initiative
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            onClick={() => window.print()}
+          >
+            <FiDownload /> Export
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -784,99 +745,93 @@ const Roadmap = () => {
         </div>
       )}
 
-      {initiatives.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white px-6 py-12 text-center text-sm text-gray-500">
-          No initiatives created yet.
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+          <div className="text-lg font-semibold text-gray-900">
+            {windowSlots[0].quarter} {windowSlots[0].year} –{' '}
+            {windowSlots[windowSlots.length - 1].quarter}{' '}
+            {windowSlots[windowSlots.length - 1].year}
+          </div>
         </div>
-      ) : visibleYears.length > 0 ? (
-        <div className="space-y-6">
-          {visibleYears.map((year) => (
-              <div key={year} className="rounded-xl border border-gray-200 bg-white shadow-sm">
-                <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-                  <div className="text-lg font-semibold text-gray-900">{year}</div>
+        <div className="min-w-0 grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
+          {windowSlots.map((slot) => {
+            const key = `${slot.year}-${slot.quarter}`
+            const items = initiativesBySlot.get(key) || []
+            const totalOneTime = items.reduce(
+              (sum, item) =>
+                sum +
+                (item.oneTimeFees || []).reduce(
+                  (inner, fee) => inner + Number(fee.amount || 0),
+                  0
+                ),
+              0
+            )
+            const totalRecurringMonthly = items.reduce(
+              (sum, item) =>
+                sum +
+                (item.recurringFees || []).reduce((inner, fee) => {
+                  const amount = Number(fee.amount || 0)
+                  const peopleCount = Math.max(Number(fee.peopleCount || 1), 1)
+                  const perPersonAmount = amount * peopleCount
+                  if (fee.frequency === 'yearly') {
+                    return inner + perPersonAmount / 12
+                  }
+                  return inner + perPersonAmount
+                }, 0),
+              0
+            )
+
+            return (
+              <div
+                key={key}
+                className="min-w-0 w-full rounded-lg border border-dashed border-gray-200 bg-gray-50/70 p-3"
+                onDrop={(event) => handleDrop(event, slot.year, slot.quarter)}
+                onDragOver={handleDragOver}
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-base font-semibold text-gray-900">
+                    {slot.quarter} {slot.year}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-lg text-blue-600"
+                    onClick={() => handleOpenCreateForQuarter(slot.year, slot.quarter)}
+                    aria-label={`Add initiative to ${slot.quarter} ${slot.year}`}
+                  >
+                    +
+                  </button>
                 </div>
-                <div className="min-w-0 grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
-                  {QUARTERS.map((quarter) => {
-                    const key = `${year}-${quarter}`
-                    const items = initiativesBySlot.get(key) || []
-                    const totalOneTime = items.reduce(
-                      (sum, item) =>
-                        sum +
-                        (item.oneTimeFees || []).reduce(
-                          (inner, fee) => inner + Number(fee.amount || 0),
-                          0
-                        ),
-                      0
-                    )
-                    const totalRecurringMonthly = items.reduce(
-                      (sum, item) =>
-                        sum +
-                        (item.recurringFees || []).reduce((inner, fee) => {
-                          const amount = Number(fee.amount || 0)
-                          const peopleCount = Math.max(Number(fee.peopleCount || 1), 1)
-                          const perPersonAmount = amount * peopleCount
-                          if (fee.frequency === 'yearly') {
-                            return inner + perPersonAmount / 12
-                          }
-                          return inner + perPersonAmount
-                        }, 0),
-                      0
-                    )
-                    return (
-                      <div
-                        key={key}
-                        className="min-w-0 w-full rounded-lg border border-dashed border-gray-200 bg-gray-50/70 p-3"
-                        onDrop={(event) => handleDrop(event, year, quarter)}
-                        onDragOver={handleDragOver}
-                      >
-                        <div className="mb-3 flex items-center justify-between">
-                          <span className="text-base font-semibold text-gray-900">
-                            {quarter}
-                          </span>
-                      <button
-                        type="button"
-                        className="text-lg text-blue-600"
-                        onClick={() => handleOpenCreateForQuarter(year, quarter)}
-                      >
-                        +
-                      </button>
-                        </div>
-                        <div className="mb-3 text-xs text-gray-500">
-                          ${totalOneTime.toFixed(2)} | ${totalRecurringMonthly.toFixed(2)}/M |
-                          ${(totalRecurringMonthly * 12).toFixed(2)}/Y
-                        </div>
-                        <div className="space-y-3 max-h-105 overflow-y-auto pr-1">
-                          {items.length === 0 ? (
-                            <div className="rounded-md border border-dashed border-gray-200 bg-white px-3 py-6 text-center text-xs text-gray-400">
-                              No initiative added
-                            </div>
-                          ) : (
-                            items.map((initiative) => (
-                              <InitiativeCard
-                                key={initiative.id}
-                                initiative={initiative}
-                                onClick={() => handleOpenEdit(initiative)}
-                                onDragStart={(event) => handleDragStart(event, initiative)}
-                                onDragEnd={handleDragEnd}
-                                draggingId={draggingId}
-                                onDropOnCard={(sourceId) =>
-                                  handleReorderInQuarter(sourceId, initiative.id)
-                                }
-                                onStatusChange={(status) =>
-                                  handleStatusUpdate(initiative, status)
-                                }
-                              />
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
+                <div className="mb-3 text-xs text-gray-500">
+                  ${totalOneTime.toFixed(2)} | ${totalRecurringMonthly.toFixed(2)}/M | $
+                  {(totalRecurringMonthly * 12).toFixed(2)}/Y
+                </div>
+                <div className="space-y-3 max-h-105 overflow-y-auto pr-1">
+                  {items.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-gray-200 bg-white px-3 py-6 text-center text-xs text-gray-400">
+                      No initiative added
+                    </div>
+                  ) : (
+                    items.map((initiative) => (
+                      <InitiativeCard
+                        key={initiative.id}
+                        initiative={initiative}
+                        onClick={() => handleOpenEdit(initiative)}
+                        onDragStart={(event) => handleDragStart(event, initiative)}
+                        onDragEnd={handleDragEnd}
+                        draggingId={draggingId}
+                        onDropOnCard={(sourceId) =>
+                          handleReorderInQuarter(sourceId, initiative.id)
+                        }
+                        onStatusChange={(status) => handleStatusUpdate(initiative, status)}
+                      />
+                    ))
+                  )}
                 </div>
               </div>
-          ))}
+            )
+          })}
         </div>
-      ) : null}
+      </div>
 
       {drawerState.open && (
         <InitiativeDrawer
