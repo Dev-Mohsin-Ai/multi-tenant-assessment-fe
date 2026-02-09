@@ -99,6 +99,14 @@ const Roadmap = () => {
       return null
     }
   })
+  const [openInitiativeId, setOpenInitiativeId] = useState(() => {
+    const openId = localStorage.getItem(OPEN_INITIATIVE_KEY)
+    if (!openId) {
+      return null
+    }
+    localStorage.removeItem(OPEN_INITIATIVE_KEY)
+    return openId
+  })
   const [drawerState, setDrawerState] = useState(() => {
     const pending = localStorage.getItem(PENDING_LINK_KEY)
     if (pending) {
@@ -114,11 +122,6 @@ const Roadmap = () => {
       } catch {
         localStorage.removeItem(PENDING_LINK_KEY)
       }
-    }
-
-    const openId = localStorage.getItem(OPEN_INITIATIVE_KEY)
-    if (openId) {
-      localStorage.removeItem(OPEN_INITIATIVE_KEY)
     }
 
     return {
@@ -161,6 +164,29 @@ const Roadmap = () => {
   useEffect(() => {
     loadInitiatives()
   }, [loadInitiatives])
+
+  useEffect(() => {
+    if (!openInitiativeId) {
+      return
+    }
+    if (drawerState.open) {
+      return
+    }
+    const found = initiatives.find(
+      (initiative) => String(initiative.id) === String(openInitiativeId)
+    )
+    if (!found) {
+      return
+    }
+    setDrawerState({
+      open: true,
+      mode: 'edit',
+      initiative: found,
+      presetYear: null,
+      presetQuarter: null,
+    })
+    setOpenInitiativeId(null)
+  }, [drawerState.open, initiatives, openInitiativeId])
 
   const filteredInitiatives = useMemo(() => {
     return initiatives.filter((initiative) => {

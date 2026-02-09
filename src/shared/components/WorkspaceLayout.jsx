@@ -7,6 +7,7 @@ import { MdAssessment } from "react-icons/md";
 import { FaUsers } from "react-icons/fa6";
 import { SiRoadmapdotsh } from 'react-icons/si'
 import { HiTemplate } from "react-icons/hi";
+import { FiTarget } from 'react-icons/fi'
 
 const WorkspaceLayout = ({
   children,
@@ -25,6 +26,7 @@ const WorkspaceLayout = ({
       { id: 'clients', label: 'Clients', icon: <FaUsers/>, path: clientsPath },
       { id: 'assessments', label: 'Assessments', icon: <MdAssessment />, iconSize: 26, path: assessmentsPath },
       { id: 'roadmap', label: 'Roadmap', icon: <SiRoadmapdotsh />, path: '/roadmap' },
+      { id: 'goals', label: 'Goals', icon: <FiTarget />, path: '/goals' },
       { id: 'templates', label: 'Templates', icon: <HiTemplate />, iconSize: 26, path: templatesPath },
     ],
     [assessmentsPath, clientsPath, templatesPath]

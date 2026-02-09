@@ -9,6 +9,7 @@ import AssessmentPage from '../features/assessments/AssessmentPage'
 import ReadOnlyAssessmentPage from '../features/assessments/ReadOnlyAssessmentPage'
 import TemplatesPage from '../features/templates/TemplatesPage'
 import RoadmapPage from '../features/roadmap/RoadmapPage'
+import GoalsPage from '../features/goals/GoalsPage'
 
 const RequireAuth = ({ children }) => {
   const token = localStorage.getItem('token')
@@ -118,6 +119,16 @@ const App = () => {
             <RequireAuth>
               <RequireClient>
                 <RoadmapPage />
+              </RequireClient>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path='/goals'
+          element={
+            <RequireAuth>
+              <RequireClient>
+                <GoalsPage />
               </RequireClient>
             </RequireAuth>
           }
