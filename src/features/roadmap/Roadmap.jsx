@@ -219,13 +219,6 @@ const Roadmap = () => {
   const unscheduledInitiatives = filteredInitiatives.filter(
     (initiative) => !initiative.isScheduled
   )
-  const unscheduledColumns = useMemo(() => {
-    const columns = [[], [], [], []]
-    unscheduledInitiatives.forEach((initiative, index) => {
-      columns[index % 4].push(initiative)
-    })
-    return columns
-  }, [unscheduledInitiatives])
 
   const initiativesBySlot = useMemo(() => {
     const map = new Map()
@@ -245,6 +238,33 @@ const Roadmap = () => {
     return map
   }, [scheduledInitiatives])
 
+  const unscheduledSlotIndex = useMemo(() => {
+    if (unscheduledInitiatives.length === 0) {
+      return -1
+    }
+
+    const slotIndexWithNoItems = windowSlots.findIndex((slot) => {
+      const key = `${slot.year}-${slot.quarter}`
+      const items = initiativesBySlot.get(key) || []
+      return items.length === 0
+    })
+
+    return slotIndexWithNoItems >= 0 ? slotIndexWithNoItems : 0
+  }, [initiativesBySlot, unscheduledInitiatives.length, windowSlots])
+
+  const displaySlots = useMemo(() => {
+    if (unscheduledSlotIndex < 0) {
+      return windowSlots.map((slot) => ({ type: 'scheduled', ...slot }))
+    }
+
+    return windowSlots.map((slot, index) => {
+      if (index === unscheduledSlotIndex) {
+        return { type: 'unscheduled', key: 'unscheduled' }
+      }
+      return { type: 'scheduled', ...slot }
+    })
+  }, [unscheduledSlotIndex, windowSlots])
+
   const handleCurrentQuarter = () => {
     setWindowStart({ year: currentYear, quarterIndex: currentQuarterIndex })
   }
@@ -254,8 +274,8 @@ const Roadmap = () => {
       open: true,
       mode: 'create',
       initiative: null,
-      presetYear: windowStart.year,
-      presetQuarter: QUARTERS[windowStart.quarterIndex],
+      presetYear: null,
+      presetQuarter: null,
     })
   }
 
@@ -517,13 +537,22 @@ const Roadmap = () => {
         return {
           ...item,
           isScheduled: false,
+          year: null,
+          quarter: null,
+          startDate: null,
         }
       })
     )
     const organizationId = Number(localStorage.getItem('activeOrganizationId'))
     const moved = initiatives.find((item) => String(item.id) === String(id))
     if (organizationId && moved) {
-      const updated = { ...moved, isScheduled: false }
+      const updated = {
+        ...moved,
+        isScheduled: false,
+        year: null,
+        quarter: null,
+        startDate: null,
+      }
       updateInitiative(id, mapInitiativeToApi(updated, organizationId)).catch(() => {
         setLoadError('Unable to update schedule')
       })
@@ -699,11 +728,18 @@ const Roadmap = () => {
         </div>
       )}
 
-      {unscheduledInitiatives.length > 0 && (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {unscheduledColumns.map((column, index) => {
-              const totalOneTime = column.reduce(
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+          <div className="text-lg font-semibold text-gray-900">
+            {windowSlots[0].quarter} {windowSlots[0].year} –{' '}
+            {windowSlots[windowSlots.length - 1].quarter}{' '}
+            {windowSlots[windowSlots.length - 1].year}
+          </div>
+        </div>
+        <div className="min-w-0 grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
+          {displaySlots.map((slot) => {
+            if (slot.type === 'unscheduled') {
+              const totalOneTime = unscheduledInitiatives.reduce(
                 (sum, item) =>
                   sum +
                   (item.oneTimeFees || []).reduce(
@@ -712,7 +748,7 @@ const Roadmap = () => {
                   ),
                 0
               )
-              const totalRecurringMonthly = column.reduce(
+              const totalRecurringMonthly = unscheduledInitiatives.reduce(
                 (sum, item) =>
                   sum +
                   (item.recurringFees || []).reduce((inner, fee) => {
@@ -726,30 +762,33 @@ const Roadmap = () => {
                   }, 0),
                 0
               )
+
               return (
                 <div
-                  key={`unscheduled-${index}`}
-                  className="min-h-35 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-3"
+                  key={slot.key}
+                  className="min-w-0 w-full rounded-lg border border-dashed border-gray-200 bg-gray-50/70 p-3"
                   onDrop={handleDropUnscheduled}
                   onDragOver={handleDragOver}
                 >
-                  <div className="flex items-center justify-between text-sm font-semibold text-gray-700">
-                    <span className="text-base font-semibold text-gray-900">Not Scheduled</span>
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-base font-semibold text-gray-900">
+                      Not Scheduled
+                    </span>
                     <button
                       type="button"
-                      onClick={handleOpenCreate}
                       className="text-lg text-blue-600"
+                      onClick={handleOpenCreate}
                       aria-label="Add initiative"
                     >
                       +
                     </button>
                   </div>
-                  <div className="mt-2 text-xs text-gray-500">
+                  <div className="mb-3 text-xs text-gray-500">
                     ${totalOneTime.toFixed(2)} | ${totalRecurringMonthly.toFixed(2)}/M | $
                     {(totalRecurringMonthly * 12).toFixed(2)}/Y
                   </div>
-                  <div className="mt-3 space-y-3 max-h-80 overflow-y-auto pr-1">
-                    {column.map((initiative) => (
+                  <div className="space-y-3 max-h-105 overflow-y-auto pr-1">
+                    {unscheduledInitiatives.map((initiative) => (
                       <InitiativeCard
                         key={initiative.id}
                         initiative={initiative}
@@ -760,27 +799,16 @@ const Roadmap = () => {
                         onDropOnCard={(sourceId) =>
                           handleReorderInQuarter(sourceId, initiative.id)
                         }
-                        onStatusChange={(status) => handleStatusUpdate(initiative, status)}
+                        onStatusChange={(status) =>
+                          handleStatusUpdate(initiative, status)
+                        }
                       />
                     ))}
                   </div>
                 </div>
               )
-            })}
-          </div>
-        </div>
-      )}
+            }
 
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-          <div className="text-lg font-semibold text-gray-900">
-            {windowSlots[0].quarter} {windowSlots[0].year} –{' '}
-            {windowSlots[windowSlots.length - 1].quarter}{' '}
-            {windowSlots[windowSlots.length - 1].year}
-          </div>
-        </div>
-        <div className="min-w-0 grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
-          {windowSlots.map((slot) => {
             const key = `${slot.year}-${slot.quarter}`
             const items = initiativesBySlot.get(key) || []
             const totalOneTime = items.reduce(

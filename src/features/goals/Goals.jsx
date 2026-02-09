@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import {
   FiCheck,
   FiCalendar,
+  FiChevronsDown,
+  FiChevronsUp,
   FiChevronDown,
   FiChevronRight,
   FiChevronUp,
@@ -44,6 +46,7 @@ const buildScheduleOptions = (years) =>
 const Goals = () => {
   const navigate = useNavigate()
   const currentYear = new Date().getFullYear()
+  const NOT_SCHEDULED_LABEL = 'Not Scheduled'
   const yearOptions = useMemo(
     () => Array.from({ length: 6 }, (_, index) => currentYear - 1 + index),
     [currentYear]
@@ -505,8 +508,8 @@ const Goals = () => {
               onClick={handleToggleExpandAll}
               className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
             >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200">
-                <span className="h-2 w-4 rounded-sm bg-gray-700" />
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-700">
+                {isAllExpanded ? <FiChevronsUp /> : <FiChevronsDown />}
               </span>
               {isAllExpanded ? 'Collapse all' : 'Expand all'}
             </button>
@@ -623,7 +626,7 @@ const Goals = () => {
                           const statusValue = initiative.status || STATUS_OPTIONS[0]
                           const scheduleValue = initiative.isScheduled
                             ? `${initiative.quarter}, ${initiative.year}`
-                            : scheduleOptions[0]
+                            : NOT_SCHEDULED_LABEL
                           const contactName =
                             initiative.contactName ||
                             CONTACTS.find((contact) => Number(contact.id) === Number(initiative.contactId))
@@ -668,15 +671,36 @@ const Goals = () => {
                                 <select
                                   value={scheduleValue}
                                   onChange={(event) => {
-                                    const [quarterRaw, yearRaw] = String(event.target.value).split(',')
+                                    const selected = String(event.target.value)
+                                    if (selected === NOT_SCHEDULED_LABEL) {
+                                      handleUpdateInitiativeField(
+                                        goal.id,
+                                        initiative.id,
+                                        'isScheduled',
+                                        false
+                                      )
+                                      return
+                                    }
+                                    const [quarterRaw, yearRaw] = selected.split(',')
                                     const quarter = quarterRaw?.trim()
                                     const year = Number(String(yearRaw || '').trim())
-                                    handleUpdateInitiativeField(goal.id, initiative.id, 'quarter', quarter)
+                                    handleUpdateInitiativeField(
+                                      goal.id,
+                                      initiative.id,
+                                      'quarter',
+                                      quarter
+                                    )
                                     handleUpdateInitiativeField(goal.id, initiative.id, 'year', year)
-                                    handleUpdateInitiativeField(goal.id, initiative.id, 'isScheduled', true)
+                                    handleUpdateInitiativeField(
+                                      goal.id,
+                                      initiative.id,
+                                      'isScheduled',
+                                      true
+                                    )
                                   }}
                                   className="h-10 w-40 rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
                                 >
+                                  <option value={NOT_SCHEDULED_LABEL}>{NOT_SCHEDULED_LABEL}</option>
                                   {scheduleOptions.map((label) => (
                                     <option key={label} value={label}>
                                       {label}

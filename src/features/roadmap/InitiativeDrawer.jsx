@@ -74,6 +74,7 @@ const InitiativeDrawer = ({
     const startDate = new Date().toISOString().slice(0, 10)
     const defaultQuarter = presetQuarter || getQuarterFromDate(startDate)
     const defaultYear = presetYear || new Date().getFullYear()
+    const hasPresetSchedule = Boolean(presetQuarter && presetYear)
     return {
       id: createId(),
       title: '',
@@ -83,7 +84,7 @@ const InitiativeDrawer = ({
       status: 'Open',
       priority: 'Medium',
       contactId: CONTACTS[0]?.id || 1,
-      isScheduled: true,
+      isScheduled: hasPresetSchedule,
       year: defaultYear,
       quarter: defaultQuarter,
       actionItems: [],
@@ -127,14 +128,16 @@ const InitiativeDrawer = ({
       return
     }
     const resolvedYear = Number(form.year) || new Date().getFullYear()
-    const resolvedQuarter = QUARTERS.includes(form.quarter)
-      ? form.quarter
-      : getQuarterFromDate(form.startDate)
+    const resolvedQuarter = form.isScheduled
+      ? QUARTERS.includes(form.quarter)
+        ? form.quarter
+        : getQuarterFromDate(form.startDate)
+      : null
     onSave({
       ...form,
       year: resolvedYear,
-      quarter: resolvedQuarter,
-      isScheduled: form.isScheduled || Boolean(resolvedQuarter),
+      quarter: resolvedQuarter || form.quarter,
+      isScheduled: Boolean(form.isScheduled && resolvedQuarter),
     })
   }
 

@@ -12,15 +12,14 @@ import {
 const DEFAULT_CONTACT = CONTACTS[0] || { id: 1, full_name: 'Contact' }
 
 export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
-  const nowYear = new Date().getFullYear()
   const scheduleYear = initiative.schedule_year ?? initiative.scheduleYear ?? null
   const scheduleQuarter =
     initiative.schedule_quarter ?? initiative.scheduleQuarter ?? null
   const isScheduled = Boolean(scheduleYear && scheduleQuarter)
-  const resolvedYear = scheduleYear || nowYear
-  const resolvedQuarter = QUARTERS.includes(scheduleQuarter)
+  const resolvedYear = isScheduled ? scheduleYear : null
+  const resolvedQuarter = isScheduled && QUARTERS.includes(scheduleQuarter)
     ? scheduleQuarter
-    : QUARTERS[0]
+    : null
   const contactId =
     initiative.contact_id ??
     initiative.contactId ??
@@ -54,7 +53,10 @@ export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
     isScheduled,
     year: resolvedYear,
     quarter: resolvedQuarter,
-    startDate: getQuarterStartDate(resolvedYear, resolvedQuarter),
+    startDate:
+      isScheduled && resolvedYear && resolvedQuarter
+        ? getQuarterStartDate(resolvedYear, resolvedQuarter)
+        : null,
     oneTimeFees: (initiative.one_time_fees || []).map((fee) => ({
       id: fee.id ?? createId(),
       title: fee.title || '',
