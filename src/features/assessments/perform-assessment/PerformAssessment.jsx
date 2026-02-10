@@ -17,6 +17,7 @@ import AssessmentQuestions from './AssessmentQuestions'
 import CompletedSummary from './CompletedSummary'
 import InitiativeDrawer from '../../roadmap/InitiativeDrawer'
 import { mapInitiativeFromApi, mapInitiativeToApi } from '../../roadmap/initiativeMapper'
+import { useAppStore } from '../../../shared/store/useAppStore'
 
 const toArray = (value) => (Array.isArray(value) ? value : [])
 
@@ -162,6 +163,7 @@ const PerformAssessment = ({
 }) => {
   const navigate = useNavigate()
   const location = useLocation()
+  const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const [assessment, setAssessment] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -242,7 +244,7 @@ const PerformAssessment = ({
   useEffect(() => {
     let isMounted = true
     const organizationId =
-      assessment?.organizationId || Number(localStorage.getItem('activeOrganizationId'))
+      assessment?.organizationId || Number(activeOrganizationId)
     if (!organizationId) {
       setInitiatives([])
       return () => {
@@ -276,7 +278,7 @@ const PerformAssessment = ({
     return () => {
       isMounted = false
     }
-  }, [assessment?.organizationId])
+  }, [assessment?.organizationId, activeOrganizationId])
 
   const categories = useMemo(() => assessment?.categories || [], [assessment])
   const years = useMemo(() => {
@@ -662,7 +664,7 @@ const PerformAssessment = ({
       .filter((key) => key && !nextResponseKeys.has(key))
 
     const organizationId =
-      assessment?.organizationId || Number(localStorage.getItem('activeOrganizationId'))
+      assessment?.organizationId || Number(activeOrganizationId)
     if (organizationId) {
       updateInitiative(updated.id, mapInitiativeToApi(updated, organizationId)).catch(
         () => {}

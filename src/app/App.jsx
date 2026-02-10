@@ -10,6 +10,7 @@ import ReadOnlyAssessmentPage from '../features/assessments/ReadOnlyAssessmentPa
 import TemplatesPage from '../features/templates/TemplatesPage'
 import RoadmapPage from '../features/roadmap/RoadmapPage'
 import GoalsPage from '../features/goals/GoalsPage'
+import { useAppStore } from '../shared/store/useAppStore'
 
 const RequireAuth = ({ children }) => {
   const token = localStorage.getItem('token')
@@ -28,7 +29,7 @@ const PublicRoute = ({ children }) => {
 }
 
 const RequireClient = ({ children }) => {
-  const activeOrganizationId = localStorage.getItem('activeOrganizationId')
+  const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   if (!activeOrganizationId) {
     return <Navigate to='/clients/select' replace />
   }

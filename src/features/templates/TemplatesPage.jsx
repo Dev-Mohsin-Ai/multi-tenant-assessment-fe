@@ -10,6 +10,7 @@ import { FiAlertCircle, FiCheckCircle } from 'react-icons/fi'
 import TemplateBrowse from './TemplateBrowse'
 import TemplateEditor from './TemplateEditor'
 import TemplatesHeader from './TemplatesHeader'
+import { useAppStore } from '../../shared/store/useAppStore'
 import {
   MULTI_RESPONSE_OPTIONS,
   YES_NO_OPTIONS,
@@ -21,8 +22,8 @@ import {
 } from './templateUtils'
 
 const TemplatesPage = () => {
-  const activeClientName = localStorage.getItem('activeOrganizationName') || 'Client'
-  const activeOrganizationId = localStorage.getItem('activeOrganizationId')
+  const activeClientName = useAppStore((state) => state.activeOrganizationName) || 'Client'
+  const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const assessmentsPath = activeOrganizationId
     ? `/clients/${activeOrganizationId}`
     : '/clients/select'

@@ -1,10 +1,11 @@
 import React from 'react'
 import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 import Roadmap from './Roadmap'
+import { useAppStore } from '../../shared/store/useAppStore'
 
 const RoadmapPage = () => {
-  const activeClientName = localStorage.getItem('activeOrganizationName') || 'Client'
-  const activeOrganizationId = localStorage.getItem('activeOrganizationId')
+  const activeClientName = useAppStore((state) => state.activeOrganizationName) || 'Client'
+  const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const assessmentsPath = activeOrganizationId
     ? `/clients/${activeOrganizationId}`
     : '/clients/select'

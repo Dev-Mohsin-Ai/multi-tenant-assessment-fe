@@ -7,8 +7,11 @@ import {
   getOrganizations,
 } from '../../../shared/services/organizationService'
 import { createAssessment } from '../../../shared/services/assessmentService'
+import { useAppStore } from '../../../shared/store/useAppStore'
 
 const Assessment = () => {
+  const storedActiveOrganizationId = useAppStore((state) => state.activeOrganizationId)
+  const setStoredActiveOrganization = useAppStore((state) => state.setActiveOrganization)
   const [open, setOpen] = useState(false)
   const [showPerform, setShowPerform] = useState(false)
   const [activeAssessmentId, setActiveAssessmentId] = useState(null)
@@ -63,9 +66,8 @@ const Assessment = () => {
           return
         }
         setOrganizations(list)
-        const storedOrgId = localStorage.getItem('activeOrganizationId')
-        const match = storedOrgId
-          ? list.find((org) => String(org.id) === String(storedOrgId))
+        const match = storedActiveOrganizationId
+          ? list.find((org) => String(org.id) === String(storedActiveOrganizationId))
           : list[0]
         setActiveOrganization(match || null)
       } catch {
@@ -84,15 +86,17 @@ const Assessment = () => {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [storedActiveOrganizationId])
 
   useEffect(() => {
     if (activeOrganization?.id) {
-      localStorage.setItem('activeOrganizationId', activeOrganization.id)
-      localStorage.setItem('activeOrganizationName', activeOrganization.name || '')
+      setStoredActiveOrganization({
+        id: activeOrganization.id,
+        name: activeOrganization.name || '',
+      })
       refreshAssessments(activeOrganization.id)
     }
-  }, [activeOrganization, refreshAssessments])
+  }, [activeOrganization, refreshAssessments, setStoredActiveOrganization])
 
   const handleNext = async (payload) => {
     if (!payload.organizationId || !payload.templateId) {

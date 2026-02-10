@@ -14,9 +14,17 @@ import {
   FiTarget,
   FiX,
 } from 'react-icons/fi'
-import { createInitiative, getInitiatives } from '../../shared/services/initiativeService'
+import InitiativeDrawer from '../roadmap/InitiativeDrawer'
+import {
+  createInitiative,
+  deleteInitiative,
+  getInitiativeById,
+  getInitiatives,
+  updateInitiative,
+} from '../../shared/services/initiativeService'
 import { mapInitiativeFromApi, mapInitiativeToApi } from '../roadmap/initiativeMapper'
 import { CONTACTS, PRIORITY_OPTIONS, QUARTERS, STATUS_OPTIONS } from '../roadmap/initiativeConstants'
+import { useAppStore } from '../../shared/store/useAppStore'
 
 const TAB_OPTIONS = [
   { id: 'ongoing', label: 'Ongoing', icon: <FiTarget /> },
@@ -45,8 +53,13 @@ const buildScheduleOptions = (years) =>
 
 const Goals = () => {
   const navigate = useNavigate()
+  const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const currentYear = new Date().getFullYear()
   const NOT_SCHEDULED_LABEL = 'Not Scheduled'
+  const years = useMemo(
+    () => Array.from({ length: 5 }, (_, index) => currentYear + index),
+    [currentYear]
+  )
   const yearOptions = useMemo(
     () => Array.from({ length: 6 }, (_, index) => currentYear - 1 + index),
     [currentYear]
@@ -63,6 +76,11 @@ const Goals = () => {
   const [availableInitiatives, setAvailableInitiatives] = useState([])
   const [loadingInitiatives, setLoadingInitiatives] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [initiativeDrawerState, setInitiativeDrawerState] = useState({
+    open: false,
+    mode: 'edit',
+    initiative: null,
+  })
 
   const [goals, setGoals] = useState(() => [])
 
@@ -86,7 +104,7 @@ const Goals = () => {
   const [goalMenuId, setGoalMenuId] = useState(null)
 
   const loadInitiatives = useCallback(async () => {
-    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    const organizationId = Number(activeOrganizationId)
     if (!organizationId) {
       setAvailableInitiatives([])
       return
@@ -102,7 +120,7 @@ const Goals = () => {
     } finally {
       setLoadingInitiatives(false)
     }
-  }, [])
+  }, [activeOrganizationId])
 
   useEffect(() => {
     loadInitiatives()
@@ -140,6 +158,23 @@ const Goals = () => {
     }
     return filteredGoals.every((goal) => expandedIds.has(goal.id))
   }, [expandedIds, filteredGoals])
+
+  const dialogLinkedInitiativeIds = useMemo(() => {
+    if (!dialogState.goalId) {
+      return new Set()
+    }
+    const goal = goals.find((item) => item.id === dialogState.goalId)
+    return new Set((goal?.initiatives || []).map((initiative) => String(initiative.id)))
+  }, [dialogState.goalId, goals])
+
+  const dialogAvailableInitiatives = useMemo(() => {
+    if (dialogLinkedInitiativeIds.size === 0) {
+      return availableInitiatives
+    }
+    return availableInitiatives.filter(
+      (initiative) => !dialogLinkedInitiativeIds.has(String(initiative.id))
+    )
+  }, [availableInitiatives, dialogLinkedInitiativeIds])
 
   const handleToggleExpandAll = () => {
     setExpandedIds((prev) => {
@@ -182,6 +217,140 @@ const Goals = () => {
   const closeGoalDialog = () => {
     setDialogState((prev) => ({ ...prev, open: false, saving: false, error: '' }))
   }
+
+  useEffect(() => {
+    if (!dialogState.open) {
+      return
+    }
+    if (dialogState.mode !== 'existing') {
+      return
+    }
+    if (!dialogState.existingInitiativeId) {
+      return
+    }
+    const stillAvailable = dialogAvailableInitiatives.some(
+      (initiative) =>
+        String(initiative.id) === String(dialogState.existingInitiativeId)
+    )
+    if (!stillAvailable) {
+      setDialogState((prev) => ({ ...prev, existingInitiativeId: '' }))
+    }
+  }, [
+    dialogAvailableInitiatives,
+    dialogState.existingInitiativeId,
+    dialogState.mode,
+    dialogState.open,
+  ])
+
+  const handleCloseInitiativeDrawer = useCallback(() => {
+    setInitiativeDrawerState({ open: false, mode: 'edit', initiative: null })
+  }, [])
+
+  const handleOpenInitiativeFromGoal = useCallback(
+    async (initiativeId) => {
+      if (!initiativeId) {
+        return
+      }
+
+      setRowMenu(null)
+      setGoalMenuId(null)
+      setLoadError('')
+
+      const fallbackFromGoals = goals
+        .flatMap((goal) => goal.initiatives || [])
+        .find((initiative) => String(initiative.id) === String(initiativeId))
+
+      const fallbackFromList =
+        availableInitiatives.find((initiative) => String(initiative.id) === String(initiativeId)) ||
+        null
+
+      const fallback = fallbackFromGoals || fallbackFromList
+
+      try {
+        const detailed = await getInitiativeById(initiativeId)
+        const mapped = mapInitiativeFromApi(detailed, {
+          linkedItemsById: fallback?.linkedItems
+            ? { [initiativeId]: fallback.linkedItems }
+            : undefined,
+        })
+        setInitiativeDrawerState({ open: true, mode: 'edit', initiative: mapped })
+      } catch {
+        setLoadError('Unable to load initiative')
+      }
+    },
+    [availableInitiatives, goals]
+  )
+
+  const handleSaveInitiativeFromDrawer = useCallback(
+    async (payload) => {
+      const organizationId = Number(activeOrganizationId)
+      const targetId = initiativeDrawerState.initiative?.id
+      if (!organizationId || !targetId) {
+        setLoadError('Select a client before updating initiatives.')
+        return
+      }
+
+      setLoadError('')
+
+      try {
+        const updated = await updateInitiative(
+          targetId,
+          mapInitiativeToApi(payload, organizationId)
+        )
+        const mapped = mapInitiativeFromApi(updated, {
+          linkedItemsById: Array.isArray(payload?.linkedItems)
+            ? { [targetId]: payload.linkedItems }
+            : undefined,
+        })
+
+        setAvailableInitiatives((prev) =>
+          prev.map((item) => (String(item.id) === String(targetId) ? mapped : item))
+        )
+        setGoals((prev) =>
+          prev.map((goal) => ({
+            ...goal,
+            initiatives: (goal.initiatives || []).map((initiative) =>
+              String(initiative.id) === String(targetId) ? { ...initiative, ...mapped } : initiative
+            ),
+          }))
+        )
+
+        handleCloseInitiativeDrawer()
+      } catch {
+        setLoadError('Unable to update initiative')
+      }
+    },
+    [activeOrganizationId, handleCloseInitiativeDrawer, initiativeDrawerState.initiative?.id]
+  )
+
+  const handleDeleteInitiativeFromDrawer = useCallback(
+    async (initiativeId) => {
+      if (!initiativeId) {
+        return
+      }
+
+      setLoadError('')
+
+      try {
+        await deleteInitiative(initiativeId)
+        setAvailableInitiatives((prev) =>
+          prev.filter((item) => String(item.id) !== String(initiativeId))
+        )
+        setGoals((prev) =>
+          prev.map((goal) => ({
+            ...goal,
+            initiatives: (goal.initiatives || []).filter(
+              (initiative) => String(initiative.id) !== String(initiativeId)
+            ),
+          }))
+        )
+        handleCloseInitiativeDrawer()
+      } catch {
+        setLoadError('Unable to delete initiative')
+      }
+    },
+    [handleCloseInitiativeDrawer]
+  )
 
   const handleOpenNewGoal = () => {
     openGoalDialog({
@@ -302,7 +471,7 @@ const Goals = () => {
           return
         }
       } else {
-        const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+        const organizationId = Number(activeOrganizationId)
         if (!organizationId) {
           setDialogState((prev) => ({
             ...prev,
@@ -347,7 +516,6 @@ const Goals = () => {
         targetQuarter: dialogState.targetQuarter,
         statusLabel: dialogState.goalStatus,
         completed: dialogState.goalStatus === 'Completed',
-        initiatives: [],
       }
 
       const { goalId } = upsertGoalFromDialog(draftGoal, linkedInitiative)
@@ -600,15 +768,15 @@ const Goals = () => {
             {isExpanded && (
               <div className="border-t border-gray-200 px-6 py-6">
                 <div className="overflow-visible rounded-lg border border-gray-200 bg-white">
-                  <table className="w-full text-left text-sm">
+                  <table className="w-full table-fixed text-left text-sm">
                     <thead className="bg-white">
-                      <tr className="[&>th]:px-4 [&>th]:py-3 [&>th]:font-semibold [&>th]:text-gray-900 border-b border-gray-200">
-                        <th className="w-[44%]">Initiative</th>
-                        <th>Status</th>
-                        <th>Scheduled</th>
-                        <th>POC</th>
-                        <th>Priority</th>
-                        <th className="w-[10%]">Actions</th>
+                      <tr className="[&>th]:px-4 [&>th]:py-3 [&>th]:font-semibold [&>th]:text-gray-900 [&>th]:whitespace-nowrap border-b border-gray-200">
+                        <th className="w-[40%]">Initiative</th>
+                        <th className="w-52">Status</th>
+                        <th className="w-56">Scheduled</th>
+                        <th className="w-48">POC</th>
+                        <th className="w-44">Priority</th>
+                        <th className="w-20">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -639,15 +807,16 @@ const Goals = () => {
                               key={initiative.id}
                               className="border-b border-gray-200 bg-[rgb(248,248,250)]"
                             >
-                              <td className="px-4 py-4">
+                              <td className="px-4 py-4 align-middle">
                                 <button
                                   type="button"
+                                  onClick={() => handleOpenInitiativeFromGoal(initiative.id)}
                                   className="text-[rgb(5,117,204)] hover:underline"
                                 >
                                   {initiative.title || 'Untitled initiative'}
                                 </button>
                               </td>
-                              <td className="px-4 py-4">
+                              <td className="px-4 py-4 align-middle">
                                 <select
                                   value={statusValue}
                                   onChange={(event) =>
@@ -658,7 +827,7 @@ const Goals = () => {
                                       event.target.value
                                     )
                                   }
-                                  className="h-10 w-44 rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
+                                  className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
                                 >
                                   {STATUS_OPTIONS.map((status) => (
                                     <option key={status} value={status}>
@@ -667,7 +836,7 @@ const Goals = () => {
                                   ))}
                                 </select>
                               </td>
-                              <td className="px-4 py-4">
+                              <td className="px-4 py-4 align-middle">
                                 <select
                                   value={scheduleValue}
                                   onChange={(event) => {
@@ -698,7 +867,7 @@ const Goals = () => {
                                       true
                                     )
                                   }}
-                                  className="h-10 w-40 rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
+                                  className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
                                 >
                                   <option value={NOT_SCHEDULED_LABEL}>{NOT_SCHEDULED_LABEL}</option>
                                   {scheduleOptions.map((label) => (
@@ -708,8 +877,10 @@ const Goals = () => {
                                   ))}
                                 </select>
                               </td>
-                              <td className="px-4 py-4 text-sm text-gray-900">{contactName}</td>
-                              <td className="px-4 py-4">
+                              <td className="px-4 py-4 align-middle text-sm text-gray-900">
+                                {contactName}
+                              </td>
+                              <td className="px-4 py-4 align-middle">
                                 <select
                                   value={priorityValue}
                                   onChange={(event) =>
@@ -720,7 +891,7 @@ const Goals = () => {
                                       event.target.value
                                     )
                                   }
-                                  className="h-10 w-20 rounded-md border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700"
+                                  className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700"
                                 >
                                   {PRIORITY_OPTIONS.map((priority) => (
                                     <option key={priority.value} value={priority.value}>
@@ -729,7 +900,7 @@ const Goals = () => {
                                   ))}
                                 </select>
                               </td>
-                              <td className="px-4 py-4">
+                              <td className="px-4 py-4 align-middle">
                                 <div className="relative flex items-center justify-end">
                                   <button
                                     type="button"
@@ -768,6 +939,16 @@ const Goals = () => {
                                         <button
                                           type="button"
                                           onClick={() => {
+                                            handleOpenInitiativeFromGoal(initiative.id)
+                                            setRowMenu(null)
+                                          }}
+                                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                                        >
+                                          Edit initiative
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
                                             handleUnlinkInitiative(goal.id, initiative.id)
                                             setRowMenu(null)
                                           }}
@@ -801,6 +982,21 @@ const Goals = () => {
           </div>
         )
       })}
+
+      {initiativeDrawerState.open && (
+        <InitiativeDrawer
+          key={`goal-initiative-${initiativeDrawerState.initiative?.id ?? 'unknown'}`}
+          open={initiativeDrawerState.open}
+          mode={initiativeDrawerState.mode}
+          years={years}
+          initiative={initiativeDrawerState.initiative}
+          presetYear={null}
+          presetQuarter={null}
+          onClose={handleCloseInitiativeDrawer}
+          onSave={handleSaveInitiativeFromDrawer}
+          onDelete={handleDeleteInitiativeFromDrawer}
+        />
+      )}
 
       {filteredGoals.length === 0 && (
         <div className="rounded-xl border border-dashed border-gray-200 bg-white px-6 py-14 text-center text-sm text-gray-500">
@@ -913,7 +1109,15 @@ const Goals = () => {
                 <div className="inline-flex overflow-hidden rounded-md border border-gray-200 bg-white">
                   <button
                     type="button"
-                    onClick={() => setDialogState((prev) => ({ ...prev, mode: 'existing' }))}
+                    onClick={() =>
+                      setDialogState((prev) => ({
+                        ...prev,
+                        mode: 'existing',
+                        error: '',
+                        existingInitiativeId: '',
+                        newInitiativeTitle: '',
+                      }))
+                    }
                     className={`px-4 py-2 text-sm font-semibold ${
                       dialogState.mode === 'existing'
                         ? 'bg-[rgb(236,245,255)] text-[rgb(5,117,204)]'
@@ -924,7 +1128,16 @@ const Goals = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDialogState((prev) => ({ ...prev, mode: 'new' }))}
+                    onClick={() =>
+                      setDialogState((prev) => ({
+                        ...prev,
+                        mode: 'new',
+                        error: '',
+                        existingInitiativeId: '',
+                        newInitiativeTitle: '',
+                        newInitiativePocId: CONTACTS[0]?.id || 1,
+                      }))
+                    }
                     className={`px-4 py-2 text-sm font-semibold ${
                       dialogState.mode === 'new'
                         ? 'bg-[rgb(236,245,255)] text-[rgb(5,117,204)]'
@@ -950,7 +1163,7 @@ const Goals = () => {
                     className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
                   >
                     <option value="">Select initiative</option>
-                    {availableInitiatives.map((initiative) => (
+                    {dialogAvailableInitiatives.map((initiative) => (
                       <option key={initiative.id} value={initiative.id}>
                         {initiative.title || `Initiative #${initiative.id}`}
                       </option>

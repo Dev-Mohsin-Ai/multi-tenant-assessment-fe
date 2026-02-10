@@ -1,11 +1,14 @@
 import React from 'react'
 import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 import Goals from './Goals'
+import { useAppStore } from '../../shared/store/useAppStore'
 
 const GoalsPage = () => {
-  const activeClientName = localStorage.getItem('activeOrganizationName') || 'Client'
-  const activeOrganizationId = localStorage.getItem('activeOrganizationId')
-  const assessmentsPath = activeOrganizationId ? `/clients/${activeOrganizationId}` : '/clients/select'
+  const activeClientName = useAppStore((state) => state.activeOrganizationName) || 'Client'
+  const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
+  const assessmentsPath = activeOrganizationId
+    ? `/clients/${activeOrganizationId}`
+    : '/clients/select'
 
   return (
     <WorkspaceLayout
@@ -22,4 +25,3 @@ const GoalsPage = () => {
 }
 
 export default GoalsPage
-

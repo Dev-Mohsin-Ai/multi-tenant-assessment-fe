@@ -8,10 +8,12 @@ import AssesmentDialogue from '../assessments/components/AssesmentDialogue'
 import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 import { createAssessment } from '../../shared/services/assessmentService'
 import { getOrganizationAssessments, getOrganizationById } from '../../shared/services/organizationService'
+import { useAppStore } from '../../shared/store/useAppStore'
 
 const ClientDashboard = () => {
   const { organizationId } = useParams()
   const navigate = useNavigate()
+  const setActiveOrganization = useAppStore((state) => state.setActiveOrganization)
   const [organization, setOrganization] = useState(null)
   const [assessments, setAssessments] = useState([])
   const [loading, setLoading] = useState(false)
@@ -46,14 +48,13 @@ const ClientDashboard = () => {
           : assessmentData?.assessments || []
         setOrganization(resolvedOrganization)
         if (resolvedOrganization?.id) {
-          localStorage.setItem('activeOrganizationId', resolvedOrganization.id)
-          localStorage.setItem(
-            'activeOrganizationName',
-            resolvedOrganization.name || ''
-          )
+          setActiveOrganization({
+            id: resolvedOrganization.id,
+            name: resolvedOrganization.name || '',
+          })
         }
         setAssessments(list)
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setError('Unable to load client data')
         }
@@ -75,7 +76,7 @@ const ClientDashboard = () => {
           ? assessmentData
           : assessmentData?.assessments || []
         setAssessments(list)
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setError('Unable to load client data')
         }
@@ -95,7 +96,7 @@ const ClientDashboard = () => {
       clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
     }
-  }, [navigate, organizationId, statusFilter])
+  }, [navigate, organizationId, setActiveOrganization, statusFilter])
 
   const getAssessmentId = (assessment) =>
     assessment.id || assessment.assessment_id || assessment.assessmentId

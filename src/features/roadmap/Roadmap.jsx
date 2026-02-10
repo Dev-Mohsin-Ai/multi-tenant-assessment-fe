@@ -26,6 +26,7 @@ import {
   updateInitiative,
 } from '../../shared/services/initiativeService'
 import { mapInitiativeFromApi, mapInitiativeToApi } from './initiativeMapper'
+import { useAppStore } from '../../shared/store/useAppStore'
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
@@ -33,6 +34,7 @@ const OPEN_INITIATIVE_KEY = 'openInitiativeId'
 
 const Roadmap = () => {
   const navigate = useNavigate()
+  const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const currentYear = new Date().getFullYear()
   const currentQuarter = `Q${Math.floor(new Date().getMonth() / 3) + 1}`
   const currentQuarterIndex = Math.max(0, QUARTERS.indexOf(currentQuarter))
@@ -134,7 +136,7 @@ const Roadmap = () => {
   })
 
   const loadInitiatives = useCallback(async () => {
-    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    const organizationId = Number(activeOrganizationId)
     if (!organizationId) {
       setInitiatives([])
       return
@@ -159,7 +161,7 @@ const Roadmap = () => {
     } finally {
       setLoadingInitiatives(false)
     }
-  }, [])
+  }, [activeOrganizationId])
 
   useEffect(() => {
     loadInitiatives()
@@ -307,7 +309,7 @@ const Roadmap = () => {
   }
 
   const handleSaveInitiative = async (payload) => {
-    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    const organizationId = Number(activeOrganizationId)
     if (!organizationId) {
       setLoadError('Select a client before creating initiatives.')
       return
@@ -449,7 +451,7 @@ const Roadmap = () => {
     setInitiatives((prev) =>
       prev.map((item) => (item.id === initiative.id ? updated : item))
     )
-    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    const organizationId = Number(activeOrganizationId)
     if (!organizationId) {
       return
     }
@@ -492,7 +494,7 @@ const Roadmap = () => {
         }
       })
     )
-    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    const organizationId = Number(activeOrganizationId)
     const moved = initiatives.find((item) => String(item.id) === String(id))
     if (organizationId && moved) {
       const startDate = getQuarterStartDate(year, quarter)
@@ -543,7 +545,7 @@ const Roadmap = () => {
         }
       })
     )
-    const organizationId = Number(localStorage.getItem('activeOrganizationId'))
+    const organizationId = Number(activeOrganizationId)
     const moved = initiatives.find((item) => String(item.id) === String(id))
     if (organizationId && moved) {
       const updated = {

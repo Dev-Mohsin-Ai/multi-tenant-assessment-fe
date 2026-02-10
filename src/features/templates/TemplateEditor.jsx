@@ -322,7 +322,7 @@ const TemplateEditor = (props) => {
                                         onClick={() =>
                                           duplicateSubcategory(catIndex, subIndex)
                                         }
-                                        className="text-xs px-2 py-1 rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all duration-200"
+                                        className="inline-flex items-center gap-1 whitespace-nowrap text-xs px-2 py-1 rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all duration-200"
                                         title="Duplicate subcategory"
                                       >
                                         <FiCopy /> Duplicate
@@ -332,7 +332,7 @@ const TemplateEditor = (props) => {
                                         onClick={() =>
                                           removeSubcategory(catIndex, subIndex)
                                         }
-                                        className="text-xs px-2 py-1 rounded bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-all duration-200"
+                                        className="inline-flex items-center justify-center text-xs px-2 py-1 rounded bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-all duration-200"
                                       >
                                         <FiTrash2 />
                                       </button>

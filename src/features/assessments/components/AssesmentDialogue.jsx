@@ -3,6 +3,7 @@ import Select from 'react-select'
 import SearchTemplate from './SearchTemplate'
 import { createOrganization, getOrganizations } from '../../../shared/services/organizationService'
 import { getTemplates } from '../../../shared/services/templateService'
+import { useAppStore } from '../../../shared/store/useAppStore'
 
 const AssesmentDialogue = ({
   onClose,
@@ -12,6 +13,7 @@ const AssesmentDialogue = ({
   onOrganizationCreated,
   organization,
 }) => {
+  const storedActiveOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const [organizations, setOrganizations] = useState(initialOrganizations)
   const [templates, setTemplates] = useState([])
   const [selectedOrg, setSelectedOrg] = useState(null)
@@ -85,11 +87,11 @@ const AssesmentDialogue = ({
         if (isMounted) {
           setOrganizations(list)
         }
-      } catch (err) {
-        if (isMounted) {
-          setError('Unable to load organizations')
-        }
-      } finally {
+    } catch {
+      if (isMounted) {
+        setError('Unable to load organizations')
+      }
+    } finally {
         if (isMounted) {
           setLoadingOrganizations(false)
         }
@@ -104,11 +106,11 @@ const AssesmentDialogue = ({
         if (isMounted) {
           setTemplates(list)
         }
-      } catch (err) {
-        if (isMounted) {
-          setError('Unable to load templates')
-        }
-      } finally {
+    } catch {
+      if (isMounted) {
+        setError('Unable to load templates')
+      }
+    } finally {
         if (isMounted) {
           setLoadingTemplates(false)
         }
@@ -137,7 +139,7 @@ const AssesmentDialogue = ({
       return
     }
 
-    const storedOrgId = activeOrganizationId || localStorage.getItem('activeOrganizationId')
+    const storedOrgId = activeOrganizationId || storedActiveOrganizationId
     const match = storedOrgId
       ? orgOptions.find((option) => String(option.value) === String(storedOrgId))
       : orgOptions[0]
@@ -145,7 +147,13 @@ const AssesmentDialogue = ({
     if (match) {
       setSelectedOrg(match)
     }
-  }, [activeOrganizationId, isOrganizationLocked, orgOptions, selectedOrg])
+  }, [
+    activeOrganizationId,
+    isOrganizationLocked,
+    orgOptions,
+    selectedOrg,
+    storedActiveOrganizationId,
+  ])
 
   const handleCreateOrganization = async () => {
     if (isOrganizationLocked) {
@@ -181,7 +189,7 @@ const AssesmentDialogue = ({
       if (onOrganizationCreated) {
         onOrganizationCreated(created)
       }
-    } catch (err) {
+    } catch {
       setError('Unable to create organization')
     } finally {
       setCreatingOrganization(false)
