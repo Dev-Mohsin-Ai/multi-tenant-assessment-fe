@@ -1,29 +1,19 @@
 import React from 'react'
-import { IoAppsSharp } from "react-icons/io5";
-import HeaderLogo from '../../assets/HeaderLogo.png';
-import { HiMiniQuestionMarkCircle } from "react-icons/hi2";
+import HeaderLogo from '../../assets/HeaderLogo.png'
 
 const Header = () => {
-    return (
-        <>
-            <div className='bg-black flex justify-between items-center px-4 py-0.5 fixed top-0 w-full z-10'>
-
-                <div className='flex items-center gap-3'>
-                    <IoAppsSharp className='text-white h-5 w-5' />
-
-                    <hr className='h-9 border-l border-white/30' />
-
-                    <img src={HeaderLogo} alt="Header Logo" className='h-4' />
-                </div>
-
-                <HiMiniQuestionMarkCircle className='text-white h-5 w-5' />
-
-            </div>
-
-            {/* Bottom divider */}
-            <hr className='w-full border-t-2 border-white/40' />
-        </>
-    )
+  return (
+    <header className="fixed top-0 z-30 h-10 w-full border-b border-white/10 bg-[rgb(12,19,34)] text-white shadow-sm">
+      <div className="flex h-full items-center justify-between px-3 md:px-5">
+        <div className="flex items-center gap-2.5">
+          <img src={HeaderLogo} alt="Atlas" className="h-7 w-auto" />
+          <div className="text-[15px] font-semibold tracking-wide text-white/95">
+            Atlas
+          </div>
+        </div>
+      </div>
+    </header>
+  )
 }
 
 export default Header

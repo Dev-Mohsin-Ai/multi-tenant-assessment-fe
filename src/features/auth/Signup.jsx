@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import LoginLogo from '../../assets/LoginLogo.png'
-import Logo from '../../assets/Logo.png'
 import Input from '../../shared/components/Input'
+import { Link } from 'react-router-dom'
+import { FaUsers } from 'react-icons/fa6'
+import { MdAssessment } from 'react-icons/md'
+import { SiRoadmapdotsh } from 'react-icons/si'
+import { FiTarget } from 'react-icons/fi'
+import { HiTemplate } from 'react-icons/hi'
 
 const Signup = () => {
     const [Company, setCompany] = useState("")
@@ -58,21 +63,20 @@ const Signup = () => {
             {/* Main Container */}
             <div className="flex flex-col md:flex-row justify-center items-stretch mx-auto max-w-5xl w-full mt-6 px-4 md:px-0">
 
-                {/* Left side - Image */}
-                <div className="hidden md:block md:w-1/2 md:h-auto md:rounded-tl-lg md:rounded-bl-lg overflow-hidden bg-[#0a1c2b]">
-                    <img
-                        src={Logo}
-                        alt="Brand Logo"
-                        className="w-full h-full object-cover"
-                    />
-                </div>
-
                 {/* Right side */}
-                <div className="w-full md:w-1/2 p-6 md:p-8 bg-white flex flex-col justify-center border-[1.5px] border-[#E4E4E9] rounded-lg md:rounded-tl-none md:rounded-bl-none md:rounded-tr-lg md:rounded-br-lg">
+                <div className="w-full max-w-xl mx-auto p-6 md:p-8 bg-white flex flex-col justify-center border-[1.5px] border-[#E4E4E9] rounded-lg">
 
                     <h2 className="text-2xl md:text-3xl font-medium text-[#2F3037] mb-2 text-center py-3">
-                        Sign up for a ScalePad account
+                        Sign up for an Atlas account
                     </h2>
+
+                    <div className="flex flex-row flex-wrap justify-center items-center gap-4 mt-2 mb-4 text-[rgb(5,117,204)]">
+                        <FaUsers className="h-10 w-10" aria-label="Clients" title="Clients" />
+                        <MdAssessment className="h-10 w-10" aria-label="Assessments" title="Assessments" />
+                        <SiRoadmapdotsh className="h-10 w-10" aria-label="Roadmap" title="Roadmap" />
+                        <FiTarget className="h-10 w-10" aria-label="Goals" title="Goals" />
+                        <HiTemplate className="h-10 w-10" aria-label="Templates" title="Templates" />
+                    </div>
 
                     <hr className="border-[#E4E4E9] mb-6" />
 
@@ -150,6 +154,13 @@ const Signup = () => {
                             className="bg-[rgb(5,117,204)] text-white py-2 rounded-lg w-full mt-2 text-sm font-medium hover:bg-[rgb(0,97,170)] transition-colors">
                             Create Account
                         </button>
+
+                        <Link
+                            to="/login"
+                            className="inline-flex items-center justify-center rounded-lg w-full mt-2 py-2 text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+                        >
+                            Back to Sign In
+                        </Link>
 
                     </form>
 

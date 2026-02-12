@@ -325,7 +325,7 @@ const Roadmap = () => {
 
         const updated = await updateInitiative(
           drawerState.initiative.id,
-          mapInitiativeToApi(payload, organizationId)
+          mapInitiativeToApi(payload, organizationId, { goalId: payload?.goalId })
         )
         const mapped = mapInitiativeFromApi(updated, {
           linkedItemsById: { [payload.id]: payload.linkedItems || [] },
@@ -384,7 +384,9 @@ const Roadmap = () => {
     }
 
     try {
-      const created = await createInitiative(mapInitiativeToApi(payload, organizationId))
+      const created = await createInitiative(
+        mapInitiativeToApi(payload, organizationId, { goalId: payload?.goalId })
+      )
       const mapped = mapInitiativeFromApi(created, {
         linkedItemsById: { [created.id]: payload.linkedItems || [] },
       })
@@ -456,7 +458,10 @@ const Roadmap = () => {
       return
     }
     try {
-      await updateInitiative(initiative.id, mapInitiativeToApi(updated, organizationId))
+      await updateInitiative(
+        initiative.id,
+        mapInitiativeToApi(updated, organizationId, { goalId: updated?.goalId })
+      )
     } catch {
       setLoadError('Unable to update initiative status')
     }
@@ -505,7 +510,7 @@ const Roadmap = () => {
         quarter,
         startDate,
       }
-      updateInitiative(id, mapInitiativeToApi(updated, organizationId)).catch(() => {
+      updateInitiative(id, mapInitiativeToApi(updated, organizationId, { goalId: updated?.goalId })).catch(() => {
         setLoadError('Unable to update schedule')
       })
     }
@@ -555,7 +560,7 @@ const Roadmap = () => {
         quarter: null,
         startDate: null,
       }
-      updateInitiative(id, mapInitiativeToApi(updated, organizationId)).catch(() => {
+      updateInitiative(id, mapInitiativeToApi(updated, organizationId, { goalId: updated?.goalId })).catch(() => {
         setLoadError('Unable to update schedule')
       })
     }

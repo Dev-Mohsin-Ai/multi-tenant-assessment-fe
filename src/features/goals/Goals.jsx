@@ -1,17 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  FiCheck,
   FiCalendar,
   FiChevronsDown,
   FiChevronsUp,
   FiChevronDown,
   FiChevronRight,
   FiChevronUp,
-  FiClock,
   FiMoreVertical,
   FiPlus,
-  FiTarget,
   FiX,
 } from 'react-icons/fi'
 import InitiativeDrawer from '../roadmap/InitiativeDrawer'
@@ -22,31 +19,16 @@ import {
   getInitiatives,
   updateInitiative,
 } from '../../shared/services/initiativeService'
+import {
+  createGoal,
+  deleteGoal as deleteGoalApi,
+  getGoalInitiatives,
+  getGoals,
+  updateGoal as updateGoalApi,
+} from '../../shared/services/goalService'
 import { mapInitiativeFromApi, mapInitiativeToApi } from '../roadmap/initiativeMapper'
 import { CONTACTS, PRIORITY_OPTIONS, QUARTERS, STATUS_OPTIONS } from '../roadmap/initiativeConstants'
 import { useAppStore } from '../../shared/store/useAppStore'
-
-const TAB_OPTIONS = [
-  { id: 'ongoing', label: 'Ongoing', icon: <FiTarget /> },
-  { id: 'overdue', label: 'Overdue', icon: <FiClock /> },
-  { id: 'completed', label: 'Completed', icon: <FiCheck /> },
-]
-
-const getQuarterIndex = (quarter) => Math.max(0, QUARTERS.indexOf(quarter))
-
-const getQuarterEnd = (year, quarter) => {
-  const quarterIndex = getQuarterIndex(quarter)
-  const endMonth = quarterIndex * 3 + 3
-  return new Date(Number(year), endMonth, 0, 23, 59, 59, 999)
-}
-
-const getTabForGoal = (goal) => {
-  if (goal.completed) {
-    return 'completed'
-  }
-  const due = getQuarterEnd(goal.targetYear, goal.targetQuarter)
-  return due.getTime() < Date.now() ? 'overdue' : 'ongoing'
-}
 
 const buildScheduleOptions = (years) =>
   years.flatMap((year) => QUARTERS.map((quarter) => `${quarter}, ${year}`))
@@ -66,7 +48,6 @@ const Goals = () => {
   )
   const scheduleOptions = useMemo(() => buildScheduleOptions(yearOptions), [yearOptions])
 
-  const [activeTab, setActiveTab] = useState('ongoing')
   const [filters, setFilters] = useState({
     status: 'All status',
     year: 'All year',
@@ -83,6 +64,8 @@ const Goals = () => {
   })
 
   const [goals, setGoals] = useState(() => [])
+  const [loadingGoals, setLoadingGoals] = useState(false)
+  const [goalError, setGoalError] = useState('')
 
   const [expandedIds, setExpandedIds] = useState(() => new Set())
   const [dialogState, setDialogState] = useState(() => ({
@@ -126,6 +109,97 @@ const Goals = () => {
     loadInitiatives()
   }, [loadInitiatives])
 
+  const loadGoals = useCallback(async () => {
+    const organizationId = Number(activeOrganizationId)
+    if (!organizationId) {
+      setGoals([])
+      return
+    }
+
+    setLoadingGoals(true)
+    setGoalError('')
+
+    try {
+      const data = await getGoals({ organization_id: organizationId })
+      const list = Array.isArray(data) ? data : data?.goals || []
+
+      const goalsWithInitiatives = await Promise.all(
+        list.map(async (goal) => {
+          const fallbackLinked = availableInitiatives.filter(
+            (initiative) => String(initiative.goalId) === String(goal.id)
+          )
+
+          try {
+            const initiatives = await getGoalInitiatives(goal.id)
+            const initiativeList = Array.isArray(initiatives)
+              ? initiatives
+              : initiatives?.initiatives || []
+            const mappedFromEndpoint = initiativeList.map((item) => mapInitiativeFromApi(item))
+
+            const merged = new Map()
+            mappedFromEndpoint.forEach((initiative) => {
+              merged.set(String(initiative.id), initiative)
+            })
+            fallbackLinked.forEach((initiative) => {
+              const key = String(initiative.id)
+              const existing = merged.get(key)
+              merged.set(key, existing ? { ...initiative, ...existing } : initiative)
+            })
+
+            return {
+              ...goal,
+              statusLabel: goal.statusLabel || 'On Track',
+              targetYear: goal.targetYear || currentYear,
+              targetQuarter: goal.targetQuarter || 'Q1',
+              completed: Boolean(goal.completed),
+              initiatives: Array.from(merged.values()),
+            }
+          } catch {
+            return {
+              ...goal,
+              statusLabel: goal.statusLabel || 'On Track',
+              targetYear: goal.targetYear || currentYear,
+              targetQuarter: goal.targetQuarter || 'Q1',
+              completed: Boolean(goal.completed),
+              initiatives: fallbackLinked,
+            }
+          }
+        })
+      )
+
+      setGoals(goalsWithInitiatives)
+    } catch {
+      setGoalError('Unable to load goals')
+    } finally {
+      setLoadingGoals(false)
+    }
+  }, [activeOrganizationId, availableInitiatives, currentYear])
+
+  useEffect(() => {
+    loadGoals()
+  }, [loadGoals])
+
+  useEffect(() => {
+    const openGoalId = localStorage.getItem('openGoalId')
+    if (!openGoalId) {
+      return
+    }
+
+    const match = goals.find((goal) => String(goal.id) === String(openGoalId))
+    if (!match) {
+      return
+    }
+
+    setExpandedIds((prev) => new Set([...prev, match.id]))
+
+    setTimeout(() => {
+      const node = document.getElementById(`goal-${match.id}`)
+      node?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
+
+    localStorage.removeItem('openGoalId')
+  }, [goals])
+
   useEffect(() => {
     if (!rowMenu && !goalMenuId) {
       return
@@ -139,8 +213,7 @@ const Goals = () => {
   }, [goalMenuId, rowMenu])
 
   const filteredGoals = useMemo(() => {
-    const tabFiltered = goals.filter((goal) => getTabForGoal(goal) === activeTab)
-    return tabFiltered.filter((goal) => {
+    return goals.filter((goal) => {
       const matchesStatus =
         filters.status === 'All status' ||
         String(goal.statusLabel || '').toLowerCase() === String(filters.status).toLowerCase()
@@ -150,7 +223,7 @@ const Goals = () => {
         filters.period === 'All period' || String(goal.targetQuarter) === String(filters.period)
       return matchesStatus && matchesYear && matchesPeriod
     })
-  }, [activeTab, filters.period, filters.status, filters.year, goals])
+  }, [filters.period, filters.status, filters.year, goals])
 
   const isAllExpanded = useMemo(() => {
     if (filteredGoals.length === 0) {
@@ -293,9 +366,19 @@ const Goals = () => {
       setLoadError('')
 
       try {
+        const owningGoal = goals.find((goal) =>
+          (goal.initiatives || []).some(
+            (initiative) => String(initiative.id) === String(targetId)
+          )
+        )
+        const goalIdToPersist = owningGoal?.id ?? initiativeDrawerState.initiative?.goalId ?? null
+        const apiPayload =
+          goalIdToPersist === null
+            ? mapInitiativeToApi(payload, organizationId)
+            : mapInitiativeToApi(payload, organizationId, { goalId: goalIdToPersist })
         const updated = await updateInitiative(
           targetId,
-          mapInitiativeToApi(payload, organizationId)
+          apiPayload
         )
         const mapped = mapInitiativeFromApi(updated, {
           linkedItemsById: Array.isArray(payload?.linkedItems)
@@ -320,7 +403,13 @@ const Goals = () => {
         setLoadError('Unable to update initiative')
       }
     },
-    [activeOrganizationId, handleCloseInitiativeDrawer, initiativeDrawerState.initiative?.id]
+    [
+      activeOrganizationId,
+      goals,
+      handleCloseInitiativeDrawer,
+      initiativeDrawerState.initiative?.goalId,
+      initiativeDrawerState.initiative?.id,
+    ]
   )
 
   const handleDeleteInitiativeFromDrawer = useCallback(
@@ -382,61 +471,6 @@ const Goals = () => {
     })
   }
 
-  const linkInitiativeToGoal = useCallback((goalId, initiative) => {
-    setGoals((prev) =>
-      prev.map((goal) => {
-        if (goal.id !== goalId) {
-          return goal
-        }
-        const existing = goal.initiatives || []
-        const alreadyLinked = existing.some(
-          (item) => String(item.id) === String(initiative.id)
-        )
-        if (alreadyLinked) {
-          return goal
-        }
-        return { ...goal, initiatives: [...existing, initiative] }
-      })
-    )
-  }, [])
-
-  const upsertGoalFromDialog = useCallback(
-    (draftGoal, linkedInitiative) => {
-      const tab = getTabForGoal(draftGoal)
-      const completed = tab === 'completed' || draftGoal.completed
-      const resolvedGoal = { ...draftGoal, completed }
-
-      if (dialogState.context === 'create') {
-        const id = `goal-${Date.now()}`
-        const created = {
-          ...resolvedGoal,
-          id,
-          initiatives: linkedInitiative ? [linkedInitiative] : [],
-        }
-        setGoals((prev) => [created, ...prev])
-        setExpandedIds((prev) => new Set([...prev, id]))
-        setActiveTab(getTabForGoal(created))
-        return { goalId: id }
-      }
-
-      if (dialogState.goalId) {
-        setGoals((prev) =>
-          prev.map((goal) =>
-            goal.id === dialogState.goalId ? { ...goal, ...resolvedGoal } : goal
-          )
-        )
-        if (linkedInitiative) {
-          linkInitiativeToGoal(dialogState.goalId, linkedInitiative)
-        }
-        setExpandedIds((prev) => new Set([...prev, dialogState.goalId]))
-        return { goalId: dialogState.goalId }
-      }
-
-      return { goalId: null }
-    },
-    [dialogState.context, dialogState.goalId, linkInitiativeToGoal]
-  )
-
   const handleSaveDialog = async ({ viewAfterSave }) => {
     const title = dialogState.goalTitle.trim()
     if (!title) {
@@ -447,6 +481,34 @@ const Goals = () => {
     setDialogState((prev) => ({ ...prev, saving: true, error: '' }))
 
     try {
+      const organizationId = Number(activeOrganizationId)
+      if (!organizationId) {
+        setDialogState((prev) => ({
+          ...prev,
+          saving: false,
+          error: 'Select a client before saving goals.',
+        }))
+        return
+      }
+
+      let goalId = dialogState.goalId
+
+      if (dialogState.context === 'create') {
+        const created = await createGoal({ title, organization_id: organizationId })
+        goalId = created?.id
+      } else if (goalId) {
+        await updateGoalApi(goalId, { title })
+      }
+
+      if (!goalId) {
+        setDialogState((prev) => ({
+          ...prev,
+          saving: false,
+          error: 'Unable to determine the goal to save.',
+        }))
+        return
+      }
+
       let linkedInitiative = null
 
       if (dialogState.mode === 'existing') {
@@ -470,16 +532,18 @@ const Goals = () => {
           }))
           return
         }
+
+        const mappedPayload = mapInitiativeToApi(linkedInitiative, organizationId, {
+          goalId,
+        })
+        const updated = await updateInitiative(linkedInitiative.id, mappedPayload)
+        linkedInitiative = mapInitiativeFromApi(updated)
+        setAvailableInitiatives((prev) =>
+          prev.map((item) =>
+            String(item.id) === String(linkedInitiative.id) ? linkedInitiative : item
+          )
+        )
       } else {
-        const organizationId = Number(activeOrganizationId)
-        if (!organizationId) {
-          setDialogState((prev) => ({
-            ...prev,
-            saving: false,
-            error: 'Select a client before creating initiatives.',
-          }))
-          return
-        }
         const initiativeTitle = dialogState.newInitiativeTitle.trim()
         if (!initiativeTitle) {
           setDialogState((prev) => ({
@@ -503,30 +567,23 @@ const Goals = () => {
             recurringFees: [],
             linkedSubcategoryIds: [],
           },
-          organizationId
+          organizationId,
+          { goalId }
         )
         const created = await createInitiative(payload)
         linkedInitiative = mapInitiativeFromApi(created)
         setAvailableInitiatives((prev) => [linkedInitiative, ...prev])
       }
 
-      const draftGoal = {
-        title,
-        targetYear: dialogState.targetYear,
-        targetQuarter: dialogState.targetQuarter,
-        statusLabel: dialogState.goalStatus,
-        completed: dialogState.goalStatus === 'Completed',
-      }
-
-      const { goalId } = upsertGoalFromDialog(draftGoal, linkedInitiative)
-
       closeGoalDialog()
+      await loadGoals()
+      await loadInitiatives()
 
       if (viewAfterSave && linkedInitiative?.id) {
         localStorage.setItem('openInitiativeId', String(linkedInitiative.id))
         navigate('/roadmap')
-      } else if (goalId && dialogState.context === 'create') {
-        // keep the new goal expanded in place
+      } else {
+        setExpandedIds((prev) => new Set([...prev, goalId]))
       }
     } catch {
       setDialogState((prev) => ({
@@ -539,32 +596,60 @@ const Goals = () => {
     }
   }
 
-  const handleUnlinkInitiative = (goalId, initiativeId) => {
-    setGoals((prev) =>
-      prev.map((goal) => {
-        if (goal.id !== goalId) {
-          return goal
-        }
-        return {
-          ...goal,
-          initiatives: (goal.initiatives || []).filter(
-            (item) => String(item.id) !== String(initiativeId)
-          ),
-        }
-      })
-    )
+  const handleUnlinkInitiative = async (goalId, initiativeId) => {
+    if (!initiativeId) {
+      return
+    }
+
+    const organizationId = Number(activeOrganizationId)
+    if (!organizationId) {
+      setLoadError('Select a client before updating initiatives.')
+      return
+    }
+
+    setLoadError('')
+
+    const existing =
+      goals
+        .find((goal) => String(goal.id) === String(goalId))
+        ?.initiatives?.find((initiative) => String(initiative.id) === String(initiativeId)) ||
+      availableInitiatives.find((initiative) => String(initiative.id) === String(initiativeId)) ||
+      null
+
+    if (!existing) {
+      setLoadError('Unable to find initiative to unlink.')
+      return
+    }
+
+    try {
+      await updateInitiative(existing.id, mapInitiativeToApi(existing, organizationId, { goalId: null }))
+      await loadGoals()
+      await loadInitiatives()
+    } catch {
+      setLoadError('Unable to unlink initiative')
+    }
   }
 
-  const handleRemoveGoal = (goalId) => {
-    setGoals((prev) => prev.filter((goal) => goal.id !== goalId))
-    setExpandedIds((prev) => {
-      const next = new Set(prev)
-      next.delete(goalId)
-      return next
-    })
-    setRowMenu((prev) => (prev?.goalId === goalId ? null : prev))
-    setGoalMenuId((prev) => (prev === goalId ? null : prev))
-    setDialogState((prev) => (prev.goalId === goalId ? { ...prev, open: false } : prev))
+  const handleRemoveGoal = async (goalId) => {
+    if (!goalId) {
+      return
+    }
+
+    setGoalError('')
+    try {
+      await deleteGoalApi(goalId)
+      setGoals((prev) => prev.filter((goal) => String(goal.id) !== String(goalId)))
+      setExpandedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(goalId)
+        return next
+      })
+      setRowMenu((prev) => (prev?.goalId === goalId ? null : prev))
+      setGoalMenuId((prev) => (prev === goalId ? null : prev))
+      setDialogState((prev) => (prev.goalId === goalId ? { ...prev, open: false } : prev))
+    } catch {
+      setGoalError('Unable to remove goal')
+    }
   }
 
   const handleUpdateInitiativeField = (goalId, initiativeId, field, value) => {
@@ -587,27 +672,6 @@ const Goals = () => {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-6 border-b border-gray-200">
-        {TAB_OPTIONS.map((tab) => {
-          const isActive = tab.id === activeTab
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`-mb-px inline-flex items-center gap-2 border-b-2 px-2 py-3 text-sm font-semibold transition ${
-                isActive
-                  ? 'border-[rgb(5,117,204)] text-[rgb(5,117,204)]'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <span className="text-lg">{tab.icon}</span>
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
-
       <div className="rounded-xl border border-gray-200 bg-[rgb(248,248,250)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-end gap-6">
@@ -692,9 +756,13 @@ const Goals = () => {
         </div>
       </div>
 
-      {(loadError || loadingInitiatives) && (
+      {(goalError || loadingGoals || loadError || loadingInitiatives) && (
         <div className="rounded-md border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
-          {loadingInitiatives ? 'Loading initiatives...' : loadError}
+          {loadingGoals
+            ? 'Loading goals...'
+            : loadingInitiatives
+              ? 'Loading initiatives...'
+              : goalError || loadError}
         </div>
       )}
 
@@ -702,7 +770,11 @@ const Goals = () => {
         const isExpanded = expandedIds.has(goal.id)
         const linkedInitiatives = goal.initiatives || []
         return (
-          <div key={goal.id} className="rounded-xl border border-gray-200 bg-white">
+          <div
+            key={goal.id}
+            id={`goal-${goal.id}`}
+            className="rounded-xl border border-gray-200 bg-white"
+          >
             <div className="flex items-center justify-between px-6 py-5">
               <button
                 type="button"

@@ -37,7 +37,7 @@ const SideTopbar = ({
     const content = children ?? activeItem?.content ?? null
 
     return (
-        <div className="fixed left-0 right-0 top-24 bottom-0 bg-white rounded-tl-xl flex flex-col overflow-auto">
+        <div className="fixed left-0 right-0 top-14 bottom-0 bg-white rounded-tl-xl flex flex-col overflow-auto">
             <TopBar activeLabel={label} clientName={clientName} />
 
             <div className="flex flex-1 min-h-0">

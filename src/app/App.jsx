@@ -38,9 +38,13 @@ const RequireClient = ({ children }) => {
 
 const App = () => {
   const location = useLocation()
+  const showHeader =
+    location.pathname.startsWith('/login') ||
+    location.pathname.startsWith('/signup') ||
+    location.pathname.startsWith('/clients/select')
   return (
     <div>
-      <Header />
+      {showHeader && <Header />}
       <Routes>
         <Route path='/' element={<Navigate to='/clients/select' replace />} />
         <Route

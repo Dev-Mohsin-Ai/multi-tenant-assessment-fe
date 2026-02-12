@@ -1,5 +1,5 @@
 import React from 'react';
-import LifeCycle from '../../assets/icons/LifeCycle.svg';
+import HeaderLogo from '../../assets/HeaderLogo.png'
 import { FaGear } from "react-icons/fa6";
 import { FaBell } from "react-icons/fa";
 import Navbar from './Navbar';
@@ -13,20 +13,20 @@ const DashboardHeader = () => {
   }
 
   return (
-    <div className="fixed top-10 left-0 right-0 z-20 w-full bg-[rgb(37,38,45)] text-white border-t border-t-[rgb(101,101,101)] px-4 py-1">
+    <div className="fixed top-0 left-0 right-0 z-20 w-full bg-[rgb(12,19,34)] text-white border-b border-b-white/10 px-4 py-1 shadow-sm">
       {/* Mobile-only row */}
       <div className="flex items-center justify-between md:hidden h-12">
         <div className="flex items-center gap-2">
           <img
-            src={LifeCycle}
-            alt="Life Cycle"
-            className="h-6 w-6 grayscale contrast-400 brightness-60 invert cursor-pointer"
+            src={HeaderLogo}
+            alt="Atlas"
+            className="h-6 w-6 cursor-pointer"
           />
           <h1
             onClick={() => navigate('/clients/select')}
             className="text-lg font-semibold cursor-pointer whitespace-nowrap tracking-wide"
           >
-            Lifecycle Manager
+            Atlas
           </h1>
         </div>
         <button
@@ -42,16 +42,16 @@ const DashboardHeader = () => {
       <div className="hidden md:flex justify-between items-center h-12">
         <div className="flex items-center gap-2 flex-wrap">
           <img
-            src={LifeCycle}
-            alt="Life Cycle"
-            className="h-6 w-6 grayscale contrast-400 brightness-60 invert cursor-pointer"
+            src={HeaderLogo}
+            alt="Atlas"
+            className="h-6 w-6 cursor-pointer"
           />
 
           <h1
             onClick={() => navigate('/clients/select')}
             className="text-lg font-semibold cursor-pointer whitespace-nowrap tracking-wide"
           >
-            Lifecycle Manager
+            Atlas
           </h1>
 
           <div className="flex-1 min-w-0">

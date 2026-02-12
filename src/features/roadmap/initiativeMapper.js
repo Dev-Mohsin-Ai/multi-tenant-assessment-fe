@@ -12,6 +12,7 @@ import {
 const DEFAULT_CONTACT = CONTACTS[0] || { id: 1, full_name: 'Contact' }
 
 export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
+  const goalId = initiative.goal_id ?? initiative.goalId ?? initiative.goal?.id ?? null
   const scheduleYear = initiative.schedule_year ?? initiative.scheduleYear ?? null
   const scheduleQuarter =
     initiative.schedule_quarter ?? initiative.scheduleQuarter ?? null
@@ -46,6 +47,7 @@ export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
     id: initiative.id ?? createId(),
     title: initiative.title || '',
     summary: initiative.executive_summary || '',
+    goalId,
     status: STATUS_FROM_API[initiative.status] || 'Open',
     priority: PRIORITY_FROM_API[initiative.priority] || 'Medium',
     contactId,
@@ -76,9 +78,9 @@ export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
   }
 }
 
-export const mapInitiativeToApi = (initiative, organizationId) => {
+export const mapInitiativeToApi = (initiative, organizationId, options = {}) => {
   const resolvedOrgId = Number(organizationId)
-  return {
+  const payload = {
     title: initiative.title || '',
     executive_summary: initiative.summary || '',
     status: STATUS_TO_API[initiative.status] || 'open',
@@ -101,4 +103,10 @@ export const mapInitiativeToApi = (initiative, organizationId) => {
       ? initiative.linkedSubcategoryIds
       : [],
   }
+
+  if (Object.prototype.hasOwnProperty.call(options, 'goalId')) {
+    payload.goal_id = options.goalId ?? null
+  }
+
+  return payload
 }

@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import LoginLogo from "../../assets/LoginLogo.png";
-import Logo from "../../assets/Logo.png";
 import Input from "../../shared/components/Input";
-import LifeCycle from "../../assets/icons/LifeCycle.svg";
-import Radar from "../../assets/icons/Radar.svg";
-import Condition360 from "../../assets/icons/Condition360.svg";
-import ControlMap from "../../assets/icons/ControlMap.svg";
-import Quoter from "../../assets/icons/Quoter.svg";
+import { FaUsers } from "react-icons/fa6";
+import { MdAssessment } from "react-icons/md";
+import { SiRoadmapdotsh } from "react-icons/si";
+import { FiTarget } from "react-icons/fi";
+import { HiTemplate } from "react-icons/hi";
 import { Link, useNavigate } from "react-router-dom";
 import { googleLogin, login } from "../../shared/services/authService";
 
@@ -116,32 +115,23 @@ const Login = () => {
         {/* Main Container */}
         <div className="flex flex-col md:flex-row justify-center items-stretch mx-auto max-w-5xl w-full mt-6 px-4 md:px-0">
 
-          {/* Left side - Image */}
-          <div className="hidden md:block md:w-1/2 md:h-auto md:rounded-tl-lg md:rounded-bl-lg overflow-hidden bg-[#0a1c2b]">
-            <img
-              src={Logo}
-              alt="Brand Logo"
-              className="w-full h-full object-cover"
-            />
-          </div>
-
           {/* Right side */}
           <div className="w-full md:w-1/2 p-6 md:p-8 bg-white flex flex-col gap-4 border-[1.5px] border-[#E4E4E9] rounded-lg md:rounded-tl-none md:rounded-bl-none md:rounded-tr-lg md:rounded-br-lg">
 
             <h2 className="text-2xl md:text-3xl font-medium text-[#2F3037] py-2 text-center">
-              Sign In for a ScalePad account
+              Sign In for an Atlas account
             </h2>
 
             <h3 className="text-center">
               One toolkit powering modern MSPs
             </h3>
 
-            <div className="flex flex-row flex-wrap justify-center items-center gap-3 mt-2">
-              <img src={LifeCycle} alt="Life Cycle" className="h-12 w-12" />
-              <img src={Radar} alt="Radar" className="h-12 w-12" />
-              <img src={Condition360} alt="Condition 360" className="h-12 w-12" />
-              <img src={ControlMap} alt="Control Map" className="h-12 w-12" />
-              <img src={Quoter} alt="Map / Quoter" className="h-12 w-12" />
+            <div className="flex flex-row flex-wrap justify-center items-center gap-4 mt-2 text-[rgb(5,117,204)]">
+              <FaUsers className="h-10 w-10" aria-label="Clients" title="Clients" />
+              <MdAssessment className="h-10 w-10" aria-label="Assessments" title="Assessments" />
+              <SiRoadmapdotsh className="h-10 w-10" aria-label="Roadmap" title="Roadmap" />
+              <FiTarget className="h-10 w-10" aria-label="Goals" title="Goals" />
+              <HiTemplate className="h-10 w-10" aria-label="Templates" title="Templates" />
             </div>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-3 mt-4">

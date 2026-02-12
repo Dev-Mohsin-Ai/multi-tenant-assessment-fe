@@ -48,12 +48,12 @@ const TopBar = ({ activeLabel, clientName = 'Mia Labs' }) => {
                         <IoIosInformationCircle
                             onMouseEnter={HandleMouseEnter}
                             onMouseLeave={HandleMouseLeave}
-                            className="text-2xl text-[rgb(5,117,204)] cursor-pointer"
+                            className="text-2xl text-[#00C7C7] cursor-pointer"
                         />
 
                         {hoverInfo && (
                             <div className="absolute right-5 bg-white text-gray-700 text-xs px-3 py-2 rounded-md shadow-lg border border-gray-200 whitespace-nowrap">
-                                Learn more about Lifecycle Manager X
+                                Learn more about Atlas
                             </div>
                         )}
                     </div>

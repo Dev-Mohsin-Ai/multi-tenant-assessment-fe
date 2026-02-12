@@ -25,7 +25,7 @@ const AllClients = () => {
         if (isMounted) {
           setClients(list)
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setError('Unable to load clients')
         }
@@ -89,7 +89,7 @@ const AllClients = () => {
       setNewName('')
       setNewDescription('')
       setShowCreate(false)
-    } catch (err) {
+    } catch {
       setError('Unable to create client')
     } finally {
       setCreating(false)

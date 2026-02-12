@@ -4,8 +4,8 @@ import AllClients from './components/AllClients'
 
 const ClientSelectPage = () => {
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[rgb(248,248,250)]">
-      <div className="mx-auto w-full max-w-full px-10 pt-20 pb-12">
+    <div className="min-h-screen bg-[rgb(248,248,250)]">
+      <div className="mx-auto w-full max-w-full px-10 pt-16 pb-12">
         <div className="mb-6 rounded-md border border-gray-200 bg-white px-6 py-5 shadow-sm">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
             <div>

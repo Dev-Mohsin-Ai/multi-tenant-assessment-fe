@@ -1,14 +1,17 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   FiX,
   FiFlag,
   FiCalendar,
+  FiExternalLink,
+  FiTarget,
   FiUser,
   FiFileText,
   FiDollarSign,
   FiLink2,
   FiTrash2,
 } from 'react-icons/fi'
+import { useNavigate } from 'react-router-dom'
 import {
   STATUS_OPTIONS,
   PRIORITY_OPTIONS,
@@ -18,6 +21,9 @@ import {
   getQuarterFromDate,
   getQuarterStartDate,
 } from './initiativeConstants'
+import { getGoalInitiatives, getGoals } from '../../shared/services/goalService'
+import { mapInitiativeFromApi } from './initiativeMapper'
+import { useAppStore } from '../../shared/store/useAppStore'
 
 const InitiativeDrawer = ({
   open = true,
@@ -31,6 +37,8 @@ const InitiativeDrawer = ({
   presetQuarter,
   onLinkedAssessmentClick = () => {},
 }) => {
+  const navigate = useNavigate()
+  const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const getResponseBadge = (label) => {
     const normalized = String(label || '').toLowerCase()
     if (normalized.includes('at risk')) {
@@ -84,6 +92,7 @@ const InitiativeDrawer = ({
       status: 'Open',
       priority: 'Medium',
       contactId: CONTACTS[0]?.id || 1,
+      goalId: null,
       isScheduled: hasPresetSchedule,
       year: defaultYear,
       quarter: defaultQuarter,
@@ -105,8 +114,116 @@ const InitiativeDrawer = ({
     return Array.from({ length: 5 }, (_, index) => current + index)
   }, [years])
 
+  const [availableGoals, setAvailableGoals] = useState([])
+  const [loadingGoals, setLoadingGoals] = useState(false)
+  const [goalError, setGoalError] = useState('')
+  const [goalInitiatives, setGoalInitiatives] = useState([])
+  const [loadingGoalInitiatives, setLoadingGoalInitiatives] = useState(false)
+
+  useEffect(() => {
+    const organizationId = Number(activeOrganizationId)
+    if (!open || !organizationId) {
+      return
+    }
+
+    let isActive = true
+
+    Promise.resolve().then(() => {
+      if (!isActive) {
+        return
+      }
+      setLoadingGoals(true)
+      setGoalError('')
+    })
+
+    getGoals({ organization_id: organizationId })
+      .then((data) => {
+        const list = Array.isArray(data) ? data : data?.goals || []
+        if (!isActive) {
+          return
+        }
+        setAvailableGoals(list)
+      })
+      .catch(() => {
+        if (!isActive) {
+          return
+        }
+        setGoalError('Unable to load goals')
+      })
+      .finally(() => {
+        if (!isActive) {
+          return
+        }
+        setLoadingGoals(false)
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [activeOrganizationId, open])
+
+  useEffect(() => {
+    const goalId = form.goalId
+    if (!open || !goalId) {
+      return
+    }
+
+    let isActive = true
+
+    Promise.resolve().then(() => {
+      if (!isActive) {
+        return
+      }
+      setLoadingGoalInitiatives(true)
+      setGoalError('')
+    })
+
+    getGoalInitiatives(goalId)
+      .then((data) => {
+        const list = Array.isArray(data) ? data : data?.initiatives || []
+        if (!isActive) {
+          return
+        }
+        setGoalInitiatives(list.map((item) => mapInitiativeFromApi(item)))
+      })
+      .catch(() => {
+        if (!isActive) {
+          return
+        }
+        setGoalError('Unable to load initiatives for this goal')
+      })
+      .finally(() => {
+        if (!isActive) {
+          return
+        }
+        setLoadingGoalInitiatives(false)
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [form.goalId, open])
+
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleViewGoal = () => {
+    if (!form.goalId) {
+      return
+    }
+    localStorage.setItem('openGoalId', String(form.goalId))
+    onClose?.()
+    navigate('/goals')
+  }
+
+  const handleOpenInitiativeOnRoadmap = (initiativeId) => {
+    if (!initiativeId) {
+      return
+    }
+    localStorage.setItem('openInitiativeId', String(initiativeId))
+    onClose?.()
+    navigate('/roadmap')
   }
 
   const handleScheduleSelect = (year, quarter) => {
@@ -161,9 +278,9 @@ const InitiativeDrawer = ({
   }
 
   return (
-    <div className="fixed top-24 left-0 right-0 bottom-0 z-50 flex justify-end bg-black/40">
+    <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex justify-end bg-black/40">
       <form
-        className="flex h-[calc(100vh-6rem)] w-full max-w-2xl flex-col bg-white shadow-xl"
+        className="flex h-full w-full max-w-2xl flex-col bg-white shadow-xl"
         onSubmit={handleSubmit}
       >
         <div className="flex items-center justify-between border-b border-gray-300 px-6 py-4 bg-white">
@@ -601,6 +718,110 @@ const InitiativeDrawer = ({
               ) : (
                 <p className="text-xs text-gray-500">No linked assessments yet.</p>
               )}
+            </section>
+
+            <section className="rounded-lg border border-gray-300 bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[rgb(236,245,255)] text-[rgb(5,117,204)]">
+                        <FiTarget className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-gray-900">Goal</div>
+                        <div
+                          className={`truncate text-sm ${
+                            form.goalId ? 'text-gray-700' : 'text-gray-500'
+                          }`}
+                        >
+                          {loadingGoals
+                            ? 'Loading goal...'
+                            : form.goalId
+                              ? availableGoals.find(
+                                  (goal) => String(goal.id) === String(form.goalId)
+                                )?.title || `Goal #${form.goalId}`
+                              : 'No goal linked'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {form.goalId && (
+                      <button
+                        type="button"
+                        onClick={handleViewGoal}
+                        className="inline-flex h-9 items-center gap-2 rounded-md border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                        disabled={loadingGoals}
+                      >
+                        <FiExternalLink /> View goal
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="mt-4 rounded-lg border border-gray-200 bg-[rgb(248,248,250)] p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                      Initiative
+                    </div>
+                    <div className="mt-1 truncate text-base font-semibold text-gray-900">
+                      {form.title?.trim() ? form.title : 'Untitled initiative'}
+                    </div>
+                  </div>
+
+                  {form.goalId && (
+                    <div className="mt-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                        All initiatives in this goal
+                      </div>
+                      <div className="mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                        {loadingGoalInitiatives ? (
+                          <div className="px-3 py-2 text-xs text-gray-500">Loading...</div>
+                        ) : goalInitiatives.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-gray-500">
+                            No initiatives linked to this goal yet.
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-gray-200">
+                            {goalInitiatives.map((item) => {
+                              const scheduleLabel = item.isScheduled
+                                ? `${item.quarter} ${item.year}`
+                                : 'Not Scheduled'
+                              const isCurrent = String(item.id) === String(form.id)
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() =>
+                                    isCurrent ? null : handleOpenInitiativeOnRoadmap(item.id)
+                                  }
+                                  disabled={isCurrent}
+                                  className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm ${
+                                    isCurrent
+                                      ? 'cursor-default bg-[rgb(248,248,250)]'
+                                      : 'hover:bg-gray-50'
+                                  }`}
+                                  title={item.title || ''}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="truncate font-semibold text-gray-900">
+                                      {item.title || 'Untitled initiative'}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-gray-500">
+                                      {scheduleLabel} • {item.status || 'Open'}
+                                      {isCurrent ? ' • Currently open' : ''}
+                                    </div>
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {goalError && <div className="text-xs text-red-600">{goalError}</div>}
+                </div>
+              </div>
             </section>
           </div>
         </div>
