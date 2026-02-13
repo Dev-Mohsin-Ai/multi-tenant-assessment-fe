@@ -21,8 +21,7 @@ import {
   getQuarterFromDate,
   getQuarterStartDate,
 } from './initiativeConstants'
-import { getGoalInitiatives, getGoals } from '../../shared/services/goalService'
-import { mapInitiativeFromApi } from './initiativeMapper'
+import { getGoals } from '../../shared/services/goalService'
 import { useAppStore } from '../../shared/store/useAppStore'
 
 const InitiativeDrawer = ({
@@ -117,8 +116,10 @@ const InitiativeDrawer = ({
   const [availableGoals, setAvailableGoals] = useState([])
   const [loadingGoals, setLoadingGoals] = useState(false)
   const [goalError, setGoalError] = useState('')
-  const [goalInitiatives, setGoalInitiatives] = useState([])
-  const [loadingGoalInitiatives, setLoadingGoalInitiatives] = useState(false)
+  const [showGoalInitiativeLinks] = useState(false)
+  const loadingGoalInitiatives = false
+  const goalInitiatives = []
+  const handleOpenInitiativeOnRoadmap = () => {}
 
   useEffect(() => {
     const organizationId = Number(activeOrganizationId)
@@ -162,48 +163,6 @@ const InitiativeDrawer = ({
     }
   }, [activeOrganizationId, open])
 
-  useEffect(() => {
-    const goalId = form.goalId
-    if (!open || !goalId) {
-      return
-    }
-
-    let isActive = true
-
-    Promise.resolve().then(() => {
-      if (!isActive) {
-        return
-      }
-      setLoadingGoalInitiatives(true)
-      setGoalError('')
-    })
-
-    getGoalInitiatives(goalId)
-      .then((data) => {
-        const list = Array.isArray(data) ? data : data?.initiatives || []
-        if (!isActive) {
-          return
-        }
-        setGoalInitiatives(list.map((item) => mapInitiativeFromApi(item)))
-      })
-      .catch(() => {
-        if (!isActive) {
-          return
-        }
-        setGoalError('Unable to load initiatives for this goal')
-      })
-      .finally(() => {
-        if (!isActive) {
-          return
-        }
-        setLoadingGoalInitiatives(false)
-      })
-
-    return () => {
-      isActive = false
-    }
-  }, [form.goalId, open])
-
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
@@ -215,15 +174,6 @@ const InitiativeDrawer = ({
     localStorage.setItem('openGoalId', String(form.goalId))
     onClose?.()
     navigate('/goals')
-  }
-
-  const handleOpenInitiativeOnRoadmap = (initiativeId) => {
-    if (!initiativeId) {
-      return
-    }
-    localStorage.setItem('openInitiativeId', String(initiativeId))
-    onClose?.()
-    navigate('/roadmap')
   }
 
   const handleScheduleSelect = (year, quarter) => {
@@ -348,57 +298,67 @@ const InitiativeDrawer = ({
                 <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
                   <FiCalendar /> SCHEDULE
                 </label>
-                {!form.isScheduled ? (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={() => handleChange('isScheduled', true)}
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-600"
-                    >
-                      Not Scheduled
-                    </button>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-gray-300 p-3 w-full">
-                    <div className="flex flex-col gap-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <select
-                          value={form.year}
-                          onChange={(event) =>
-                            handleScheduleSelect(event.target.value, form.quarter)
-                          }
-                          className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm"
-                        >
-                          {yearOptions.map((year) => (
-                            <option key={year} value={year}>
-                              {year}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={form.quarter}
-                          onChange={(event) =>
-                            handleScheduleSelect(form.year, event.target.value)
-                          }
-                          className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm"
-                        >
-                          {QUARTERS.map((quarter) => (
-                            <option key={quarter} value={quarter}>
-                              {quarter}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleChange('isScheduled', false)}
-                        className="text-xs text-gray-500"
+                <div className="rounded-lg border border-gray-300 p-3 w-full">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div
+                        className={`inline-flex h-9 items-center rounded-md border px-3 text-sm font-semibold ${
+                          form.isScheduled
+                            ? 'border-[rgb(5,117,204)] bg-[rgb(236,245,255)] text-[rgb(5,117,204)]'
+                            : 'border-gray-300 bg-gray-50 text-gray-500'
+                        }`}
+                        aria-disabled={!form.isScheduled}
                       >
-                        Clear schedule
-                      </button>
+                        {form.isScheduled ? 'Scheduled' : 'Not Scheduled'}
+                      </div>
+
+                      {!form.isScheduled ? (
+                        <button
+                          type="button"
+                          onClick={() => handleScheduleSelect(form.year, form.quarter)}
+                          className="inline-flex h-9 items-center justify-center rounded-md bg-[rgb(5,117,204)] px-3 text-sm font-semibold text-white hover:bg-[rgb(0,97,170)]"
+                        >
+                          Schedule
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleChange('isScheduled', false)}
+                          className="inline-flex h-9 items-center justify-center rounded-md border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={form.year}
+                        onChange={(event) => handleScheduleSelect(event.target.value, form.quarter)}
+                        className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                        disabled={!form.isScheduled}
+                      >
+                        {yearOptions.map((year) => (
+                          <option key={year} value={year}>
+                            {year}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={form.quarter}
+                        onChange={(event) => handleScheduleSelect(form.year, event.target.value)}
+                        className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                        disabled={!form.isScheduled}
+                      >
+                        {QUARTERS.map((quarter) => (
+                          <option key={quarter} value={quarter}>
+                            {quarter}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
-                )}
+                </div>
               </div>
               <div className="space-y-3">
                 <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
@@ -758,16 +718,7 @@ const InitiativeDrawer = ({
                     )}
                   </div>
 
-                  <div className="mt-4 rounded-lg border border-gray-200 bg-[rgb(248,248,250)] p-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                      Initiative
-                    </div>
-                    <div className="mt-1 truncate text-base font-semibold text-gray-900">
-                      {form.title?.trim() ? form.title : 'Untitled initiative'}
-                    </div>
-                  </div>
-
-                  {form.goalId && (
+                  {showGoalInitiativeLinks && form.goalId && (
                     <div className="mt-4">
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                         All initiatives in this goal

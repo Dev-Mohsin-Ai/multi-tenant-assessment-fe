@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Select from 'react-select'
 import {
-  FiCalendar,
   FiChevronsDown,
   FiChevronsUp,
   FiChevronDown,
-  FiChevronRight,
   FiChevronUp,
   FiMoreVertical,
   FiPlus,
@@ -32,6 +31,48 @@ import { useAppStore } from '../../shared/store/useAppStore'
 
 const buildScheduleOptions = (years) =>
   years.flatMap((year) => QUARTERS.map((quarter) => `${quarter}, ${year}`))
+
+const formatApiError = (error, fallback) => {
+  const status = error?.response?.status
+  const data = error?.response?.data
+  const detail =
+    typeof data === 'string'
+      ? data
+      : typeof data?.detail === 'string'
+        ? data.detail
+        : Array.isArray(data?.detail)
+          ? data.detail
+              .map((item) => item?.msg || item?.message || '')
+              .filter(Boolean)
+              .join(', ')
+          : ''
+
+  const statusLabel = status ? ` (HTTP ${status})` : ''
+  const detailLabel = detail ? `: ${detail}` : ''
+  return `${fallback}${statusLabel}${detailLabel}`
+}
+
+const isGoalNotFoundError = (error) => {
+  const status = error?.response?.status
+  const data = error?.response?.data
+  const detail =
+    typeof data === 'string'
+      ? data
+      : typeof data?.detail === 'string'
+        ? data.detail
+        : ''
+
+  return Number(status) === 404 && /goal not found/i.test(detail)
+}
+
+const UNSCHEDULED_PLACEMENTS_KEY = 'unscheduledPlacements'
+const parseQuarterSlotKey = (value) => {
+  const match = /^(\d{4})-(Q[1-4])$/.exec(String(value || ''))
+  if (!match) {
+    return null
+  }
+  return { year: Number(match[1]), quarter: match[2] }
+}
 
 const Goals = () => {
   const navigate = useNavigate()
@@ -74,17 +115,67 @@ const Goals = () => {
     goalId: null,
     mode: 'existing', // 'existing' | 'new'
     goalTitle: '',
-    goalStatus: 'On Track',
-    targetYear: currentYear,
-    targetQuarter: 'Q1',
-    existingInitiativeId: '',
+    existingInitiativeIds: [],
     newInitiativeTitle: '',
     newInitiativePocId: CONTACTS[0]?.id || 1,
+    newInitiativeIsScheduled: false,
+    newInitiativeYear: currentYear,
+    newInitiativeQuarter: QUARTERS[0],
     error: '',
     saving: false,
   }))
   const [rowMenu, setRowMenu] = useState(null)
   const [goalMenuId, setGoalMenuId] = useState(null)
+  const placementsStorageKey = useMemo(() => {
+    const organizationId = Number(activeOrganizationId)
+    if (!organizationId) {
+      return UNSCHEDULED_PLACEMENTS_KEY
+    }
+    return `${UNSCHEDULED_PLACEMENTS_KEY}:${organizationId}`
+  }, [activeOrganizationId])
+  const [placementOverrides, setPlacementOverrides] = useState(() => ({}))
+
+  useEffect(() => {
+    try {
+      const scopedRaw = localStorage.getItem(placementsStorageKey)
+      if (scopedRaw) {
+        setPlacementOverrides(JSON.parse(scopedRaw))
+        return
+      }
+      if (placementsStorageKey !== UNSCHEDULED_PLACEMENTS_KEY) {
+        const legacyRaw = localStorage.getItem(UNSCHEDULED_PLACEMENTS_KEY)
+        setPlacementOverrides(legacyRaw ? JSON.parse(legacyRaw) : {})
+        return
+      }
+      setPlacementOverrides({})
+    } catch {
+      setPlacementOverrides({})
+    }
+  }, [placementsStorageKey])
+
+  const persistPlacementOverrides = useCallback(
+    (updater) => {
+      setPlacementOverrides((prev) => {
+        const next =
+          typeof updater === 'function'
+            ? updater(prev || {})
+            : updater && typeof updater === 'object'
+              ? updater
+              : {}
+        try {
+          const serialized = JSON.stringify(next)
+          localStorage.setItem(placementsStorageKey, serialized)
+          if (placementsStorageKey !== UNSCHEDULED_PLACEMENTS_KEY) {
+            localStorage.setItem(UNSCHEDULED_PLACEMENTS_KEY, serialized)
+          }
+        } catch {
+          // ignore storage failures
+        }
+        return next
+      })
+    },
+    [placementsStorageKey]
+  )
 
   const loadInitiatives = useCallback(async () => {
     const organizationId = Number(activeOrganizationId)
@@ -125,10 +216,6 @@ const Goals = () => {
 
       const goalsWithInitiatives = await Promise.all(
         list.map(async (goal) => {
-          const fallbackLinked = availableInitiatives.filter(
-            (initiative) => String(initiative.goalId) === String(goal.id)
-          )
-
           try {
             const initiatives = await getGoalInitiatives(goal.id)
             const initiativeList = Array.isArray(initiatives)
@@ -136,23 +223,13 @@ const Goals = () => {
               : initiatives?.initiatives || []
             const mappedFromEndpoint = initiativeList.map((item) => mapInitiativeFromApi(item))
 
-            const merged = new Map()
-            mappedFromEndpoint.forEach((initiative) => {
-              merged.set(String(initiative.id), initiative)
-            })
-            fallbackLinked.forEach((initiative) => {
-              const key = String(initiative.id)
-              const existing = merged.get(key)
-              merged.set(key, existing ? { ...initiative, ...existing } : initiative)
-            })
-
             return {
               ...goal,
               statusLabel: goal.statusLabel || 'On Track',
               targetYear: goal.targetYear || currentYear,
               targetQuarter: goal.targetQuarter || 'Q1',
               completed: Boolean(goal.completed),
-              initiatives: Array.from(merged.values()),
+              initiatives: mappedFromEndpoint,
             }
           } catch {
             return {
@@ -161,19 +238,20 @@ const Goals = () => {
               targetYear: goal.targetYear || currentYear,
               targetQuarter: goal.targetQuarter || 'Q1',
               completed: Boolean(goal.completed),
-              initiatives: fallbackLinked,
+              initiatives: [],
             }
           }
         })
       )
 
       setGoals(goalsWithInitiatives)
+      setExpandedIds(new Set(goalsWithInitiatives.map((goal) => goal.id)))
     } catch {
       setGoalError('Unable to load goals')
     } finally {
       setLoadingGoals(false)
     }
-  }, [activeOrganizationId, availableInitiatives, currentYear])
+  }, [activeOrganizationId, currentYear])
 
   useEffect(() => {
     loadGoals()
@@ -298,25 +376,75 @@ const Goals = () => {
     if (dialogState.mode !== 'existing') {
       return
     }
-    if (!dialogState.existingInitiativeId) {
+    if (!Array.isArray(dialogState.existingInitiativeIds) || dialogState.existingInitiativeIds.length === 0) {
       return
     }
-    const stillAvailable = dialogAvailableInitiatives.some(
-      (initiative) =>
-        String(initiative.id) === String(dialogState.existingInitiativeId)
-    )
-    if (!stillAvailable) {
-      setDialogState((prev) => ({ ...prev, existingInitiativeId: '' }))
-    }
+    const stillAvailable = new Set(dialogAvailableInitiatives.map((initiative) => String(initiative.id)))
+    setDialogState((prev) => {
+      const currentIds = Array.isArray(prev.existingInitiativeIds) ? prev.existingInitiativeIds : []
+      const nextIds = currentIds.filter((id) => stillAvailable.has(String(id)))
+      const unchanged =
+        nextIds.length === currentIds.length &&
+        nextIds.every((id, index) => String(id) === String(currentIds[index]))
+
+      if (unchanged) {
+        return prev
+      }
+
+      return {
+        ...prev,
+        existingInitiativeIds: nextIds,
+      }
+    })
   }, [
     dialogAvailableInitiatives,
-    dialogState.existingInitiativeId,
+    dialogState.existingInitiativeIds,
     dialogState.mode,
     dialogState.open,
   ])
 
   const handleCloseInitiativeDrawer = useCallback(() => {
     setInitiativeDrawerState({ open: false, mode: 'edit', initiative: null })
+  }, [])
+
+  const upsertAvailableInitiatives = useCallback((nextInitiatives) => {
+    const updates = Array.isArray(nextInitiatives) ? nextInitiatives.filter(Boolean) : []
+    if (updates.length === 0) {
+      return
+    }
+
+    setAvailableInitiatives((prev) => {
+      const byId = new Map(prev.map((initiative) => [String(initiative.id), initiative]))
+      updates.forEach((initiative) => {
+        const key = String(initiative.id)
+        byId.set(key, { ...(byId.get(key) || {}), ...initiative })
+      })
+      return Array.from(byId.values())
+    })
+  }, [])
+
+  const syncGoalsWithInitiatives = useCallback((nextInitiatives) => {
+    const updates = Array.isArray(nextInitiatives) ? nextInitiatives.filter(Boolean) : []
+    if (updates.length === 0) {
+      return
+    }
+
+    const updatesById = new Map(updates.map((initiative) => [String(initiative.id), initiative]))
+
+    setGoals((prev) =>
+      prev.map((goal) => {
+        const goalId = String(goal.id)
+        const current = Array.isArray(goal.initiatives) ? goal.initiatives : []
+        const retained = current.filter((initiative) => !updatesById.has(String(initiative.id)))
+        const assigned = updates.filter(
+          (initiative) =>
+            initiative.goalId !== null &&
+            initiative.goalId !== undefined &&
+            String(initiative.goalId) === goalId
+        )
+        return { ...goal, initiatives: [...retained, ...assigned] }
+      })
+    )
   }, [])
 
   const handleOpenInitiativeFromGoal = useCallback(
@@ -376,31 +504,45 @@ const Goals = () => {
           goalIdToPersist === null
             ? mapInitiativeToApi(payload, organizationId)
             : mapInitiativeToApi(payload, organizationId, { goalId: goalIdToPersist })
-        const updated = await updateInitiative(
-          targetId,
-          apiPayload
-        )
+
+        let updated
+        let nextPayload = payload
+        try {
+          updated = await updateInitiative(targetId, apiPayload)
+        } catch (error) {
+          if (!isGoalNotFoundError(error)) {
+            throw error
+          }
+          const retryPayload = mapInitiativeToApi(
+            { ...payload, goalId: null },
+            organizationId,
+            { goalId: null }
+          )
+          updated = await updateInitiative(targetId, retryPayload)
+          nextPayload = { ...payload, goalId: null }
+        }
+
         const mapped = mapInitiativeFromApi(updated, {
-          linkedItemsById: Array.isArray(payload?.linkedItems)
-            ? { [targetId]: payload.linkedItems }
+          linkedItemsById: Array.isArray(nextPayload?.linkedItems)
+            ? { [targetId]: nextPayload.linkedItems }
             : undefined,
         })
+        const normalizedMapped = nextPayload.isScheduled
+          ? mapped
+          : {
+              ...mapped,
+              isScheduled: false,
+              year: null,
+              quarter: null,
+              startDate: null,
+            }
 
-        setAvailableInitiatives((prev) =>
-          prev.map((item) => (String(item.id) === String(targetId) ? mapped : item))
-        )
-        setGoals((prev) =>
-          prev.map((goal) => ({
-            ...goal,
-            initiatives: (goal.initiatives || []).map((initiative) =>
-              String(initiative.id) === String(targetId) ? { ...initiative, ...mapped } : initiative
-            ),
-          }))
-        )
+        upsertAvailableInitiatives([normalizedMapped])
+        syncGoalsWithInitiatives([normalizedMapped])
 
         handleCloseInitiativeDrawer()
-      } catch {
-        setLoadError('Unable to update initiative')
+      } catch (error) {
+        setLoadError(formatApiError(error, 'Unable to update initiative'))
       }
     },
     [
@@ -409,6 +551,8 @@ const Goals = () => {
       handleCloseInitiativeDrawer,
       initiativeDrawerState.initiative?.goalId,
       initiativeDrawerState.initiative?.id,
+      syncGoalsWithInitiatives,
+      upsertAvailableInitiatives,
     ]
   )
 
@@ -447,12 +591,12 @@ const Goals = () => {
       goalId: null,
       mode: 'existing',
       goalTitle: '',
-      goalStatus: 'On Track',
-      targetYear: currentYear,
-      targetQuarter: 'Q1',
-      existingInitiativeId: '',
+      existingInitiativeIds: [],
       newInitiativeTitle: '',
       newInitiativePocId: CONTACTS[0]?.id || 1,
+      newInitiativeIsScheduled: false,
+      newInitiativeYear: currentYear,
+      newInitiativeQuarter: QUARTERS[0],
     })
   }
 
@@ -462,12 +606,12 @@ const Goals = () => {
       goalId: goal.id,
       mode: 'existing',
       goalTitle: goal.title || '',
-      goalStatus: goal.statusLabel || 'On Track',
-      targetYear: goal.targetYear || currentYear,
-      targetQuarter: goal.targetQuarter || 'Q1',
-      existingInitiativeId: '',
+      existingInitiativeIds: [],
       newInitiativeTitle: '',
       newInitiativePocId: CONTACTS[0]?.id || 1,
+      newInitiativeIsScheduled: false,
+      newInitiativeYear: currentYear,
+      newInitiativeQuarter: QUARTERS[0],
     })
   }
 
@@ -496,8 +640,29 @@ const Goals = () => {
       if (dialogState.context === 'create') {
         const created = await createGoal({ title, organization_id: organizationId })
         goalId = created?.id
+        if (goalId) {
+          setGoals((prev) => {
+            if (prev.some((goal) => String(goal.id) === String(goalId))) {
+              return prev
+            }
+            return [
+              {
+                ...created,
+                statusLabel: created?.statusLabel || 'On Track',
+                targetYear: created?.targetYear || currentYear,
+                targetQuarter: created?.targetQuarter || 'Q1',
+                completed: Boolean(created?.completed),
+                initiatives: [],
+              },
+              ...prev,
+            ]
+          })
+        }
       } else if (goalId) {
         await updateGoalApi(goalId, { title })
+        setGoals((prev) =>
+          prev.map((goal) => (String(goal.id) === String(goalId) ? { ...goal, title } : goal))
+        )
       }
 
       if (!goalId) {
@@ -512,37 +677,45 @@ const Goals = () => {
       let linkedInitiative = null
 
       if (dialogState.mode === 'existing') {
-        if (!dialogState.existingInitiativeId) {
+        const selectedIds = Array.isArray(dialogState.existingInitiativeIds)
+          ? dialogState.existingInitiativeIds.map((id) => String(id)).filter(Boolean)
+          : []
+        if (selectedIds.length === 0) {
           setDialogState((prev) => ({
             ...prev,
             saving: false,
-            error: 'Select an initiative to continue.',
-          }))
-          return
-        }
-        linkedInitiative =
-          availableInitiatives.find(
-            (item) => String(item.id) === String(dialogState.existingInitiativeId)
-          ) || null
-        if (!linkedInitiative) {
-          setDialogState((prev) => ({
-            ...prev,
-            saving: false,
-            error: 'Selected initiative was not found.',
+            error: 'Select one or more initiatives to continue.',
           }))
           return
         }
 
-        const mappedPayload = mapInitiativeToApi(linkedInitiative, organizationId, {
-          goalId,
-        })
-        const updated = await updateInitiative(linkedInitiative.id, mappedPayload)
-        linkedInitiative = mapInitiativeFromApi(updated)
-        setAvailableInitiatives((prev) =>
-          prev.map((item) =>
-            String(item.id) === String(linkedInitiative.id) ? linkedInitiative : item
+        const selectedInitiatives = selectedIds
+          .map(
+            (id) =>
+              availableInitiatives.find((item) => String(item.id) === String(id)) || null
           )
+          .filter(Boolean)
+
+        if (selectedInitiatives.length !== selectedIds.length) {
+          setDialogState((prev) => ({
+            ...prev,
+            saving: false,
+            error: 'One or more selected initiatives were not found.',
+          }))
+          return
+        }
+
+        const updatedInitiatives = await Promise.all(
+          selectedInitiatives.map(async (initiative) => {
+            const mappedPayload = mapInitiativeToApi(initiative, organizationId, { goalId })
+            const updated = await updateInitiative(initiative.id, mappedPayload)
+            return mapInitiativeFromApi(updated)
+          })
         )
+
+        upsertAvailableInitiatives(updatedInitiatives)
+        syncGoalsWithInitiatives(updatedInitiatives)
+        linkedInitiative = updatedInitiatives[0] || null
       } else {
         const initiativeTitle = dialogState.newInitiativeTitle.trim()
         if (!initiativeTitle) {
@@ -553,15 +726,20 @@ const Goals = () => {
           }))
           return
         }
+        const isScheduled = Boolean(
+          dialogState.newInitiativeIsScheduled &&
+            Number(dialogState.newInitiativeYear) &&
+            QUARTERS.includes(dialogState.newInitiativeQuarter)
+        )
         const payload = mapInitiativeToApi(
           {
             title: initiativeTitle,
             summary: '',
             status: 'Open',
             priority: 'Medium',
-            isScheduled: true,
-            year: dialogState.targetYear,
-            quarter: dialogState.targetQuarter,
+            isScheduled,
+            year: isScheduled ? Number(dialogState.newInitiativeYear) : null,
+            quarter: isScheduled ? dialogState.newInitiativeQuarter : null,
             contactId: dialogState.newInitiativePocId,
             oneTimeFees: [],
             recurringFees: [],
@@ -572,24 +750,22 @@ const Goals = () => {
         )
         const created = await createInitiative(payload)
         linkedInitiative = mapInitiativeFromApi(created)
-        setAvailableInitiatives((prev) => [linkedInitiative, ...prev])
+        upsertAvailableInitiatives([linkedInitiative])
+        syncGoalsWithInitiatives([linkedInitiative])
       }
 
       closeGoalDialog()
-      await loadGoals()
-      await loadInitiatives()
-
       if (viewAfterSave && linkedInitiative?.id) {
         localStorage.setItem('openInitiativeId', String(linkedInitiative.id))
         navigate('/roadmap')
       } else {
         setExpandedIds((prev) => new Set([...prev, goalId]))
       }
-    } catch {
+    } catch (error) {
       setDialogState((prev) => ({
         ...prev,
         saving: false,
-        error: 'Unable to save. Please try again.',
+        error: formatApiError(error, 'Unable to save. Please try again'),
       }))
     } finally {
       setDialogState((prev) => ({ ...prev, saving: false }))
@@ -622,11 +798,25 @@ const Goals = () => {
     }
 
     try {
-      await updateInitiative(existing.id, mapInitiativeToApi(existing, organizationId, { goalId: null }))
-      await loadGoals()
-      await loadInitiatives()
-    } catch {
-      setLoadError('Unable to unlink initiative')
+      const detailed = await getInitiativeById(existing.id).catch(() => null)
+      const sourceInitiative = detailed ? mapInitiativeFromApi(detailed) : existing
+      const updated = await updateInitiative(
+        existing.id,
+        mapInitiativeToApi(sourceInitiative, organizationId, { goalId: null })
+      )
+      const mapped = mapInitiativeFromApi(updated)
+      if (mapped.goalId !== null && mapped.goalId !== undefined) {
+        throw new Error('unlink-not-persisted')
+      }
+      const normalizedMapped = {
+        ...mapped,
+        goalId: null,
+      }
+      upsertAvailableInitiatives([normalizedMapped])
+      syncGoalsWithInitiatives([normalizedMapped])
+      await Promise.all([loadGoals(), loadInitiatives()])
+    } catch (error) {
+      console.error('Unlink initiative failed', error)
     }
   }
 
@@ -652,23 +842,193 @@ const Goals = () => {
     }
   }
 
-  const handleUpdateInitiativeField = (goalId, initiativeId, field, value) => {
+  const patchInitiativeInState = useCallback((initiativeId, updates) => {
+    const id = String(initiativeId)
     setGoals((prev) =>
-      prev.map((goal) => {
-        if (goal.id !== goalId) {
-          return goal
-        }
-        return {
-          ...goal,
-          initiatives: (goal.initiatives || []).map((initiative) =>
-            String(initiative.id) === String(initiativeId)
-              ? { ...initiative, [field]: value }
-              : initiative
-          ),
-        }
-      })
+      prev.map((goal) => ({
+        ...goal,
+        initiatives: (goal.initiatives || []).map((initiative) =>
+          String(initiative.id) === id ? { ...initiative, ...updates } : initiative
+        ),
+      }))
     )
-  }
+    setAvailableInitiatives((prev) =>
+      prev.map((initiative) =>
+        String(initiative.id) === id ? { ...initiative, ...updates } : initiative
+      )
+    )
+  }, [])
+
+  const getInitiativeSnapshot = useCallback(
+    (goalId, initiativeId) =>
+      goals
+        .find((goal) => String(goal.id) === String(goalId))
+        ?.initiatives?.find((initiative) => String(initiative.id) === String(initiativeId)) ||
+      availableInitiatives.find((initiative) => String(initiative.id) === String(initiativeId)) ||
+      null,
+    [availableInitiatives, goals]
+  )
+
+  const handlePersistInitiativePatch = useCallback(
+    async (goalId, initiativeId, updates) => {
+      const organizationId = Number(activeOrganizationId)
+      if (!organizationId) {
+        setLoadError('Select a client before updating initiatives.')
+        return
+      }
+      const isScheduleMutation = Object.prototype.hasOwnProperty.call(
+        updates || {},
+        'isScheduled'
+      )
+
+      const existing = getInitiativeSnapshot(goalId, initiativeId)
+      if (!existing) {
+        setLoadError('Unable to find initiative to update.')
+        return
+      }
+
+      const optimistic = { ...existing, ...updates }
+      const normalizedOptimistic = optimistic.isScheduled
+        ? optimistic
+        : {
+            ...optimistic,
+            isScheduled: false,
+            year: null,
+            quarter: null,
+            startDate: null,
+          }
+
+      patchInitiativeInState(initiativeId, normalizedOptimistic)
+      if (isScheduleMutation) {
+        const requestedQuarterValue = QUARTERS.includes(updates?.quarter) ? updates.quarter : null
+        const numericRequestedYear = Number(updates?.year)
+        const requestedYearValue = Number.isFinite(numericRequestedYear)
+          ? numericRequestedYear
+          : null
+
+        persistPlacementOverrides((prev) => {
+          const nextPlacements = { ...(prev || {}) }
+          if (updates?.isScheduled === false) {
+            nextPlacements[String(initiativeId)] = 'unscheduled'
+          } else if (updates?.isScheduled === true && requestedYearValue && requestedQuarterValue) {
+            nextPlacements[String(initiativeId)] = `${requestedYearValue}-${requestedQuarterValue}`
+          }
+          return nextPlacements
+        })
+      }
+
+      try {
+        const goalIdToPersist =
+          normalizedOptimistic.goalId !== null && normalizedOptimistic.goalId !== undefined
+            ? normalizedOptimistic.goalId
+            : goalId
+        const shouldOmitGoalId =
+          Object.prototype.hasOwnProperty.call(updates || {}, 'isScheduled') &&
+          updates?.isScheduled === false
+
+        let updated
+        try {
+          const primaryPayload = shouldOmitGoalId
+            ? mapInitiativeToApi(normalizedOptimistic, organizationId)
+            : mapInitiativeToApi(normalizedOptimistic, organizationId, { goalId: goalIdToPersist })
+          updated = await updateInitiative(
+            initiativeId,
+            primaryPayload
+          )
+        } catch (error) {
+          if (!isGoalNotFoundError(error)) {
+            throw error
+          }
+          updated = await updateInitiative(
+            initiativeId,
+            mapInitiativeToApi(
+              {
+                ...normalizedOptimistic,
+                goalId: null,
+              },
+              organizationId,
+              { goalId: null }
+            )
+          )
+        }
+
+        const latest = await getInitiativeById(initiativeId).catch(() => updated)
+        const mapped = mapInitiativeFromApi(latest)
+        const hasRequestedScheduleState = Object.prototype.hasOwnProperty.call(
+          updates || {},
+          'isScheduled'
+        )
+        const requestedScheduleState = hasRequestedScheduleState ? Boolean(updates?.isScheduled) : null
+
+        let normalizedMapped = mapped
+        if (requestedScheduleState === false) {
+          normalizedMapped = {
+            ...mapped,
+            isScheduled: false,
+            year: null,
+            quarter: null,
+            startDate: null,
+          }
+        } else if (requestedScheduleState === true) {
+          const requestedYear = Number(updates?.year ?? normalizedOptimistic.year ?? mapped.year)
+          const requestedQuarter = updates?.quarter ?? normalizedOptimistic.quarter ?? mapped.quarter
+          normalizedMapped = {
+            ...mapped,
+            isScheduled: true,
+            year: Number.isFinite(requestedYear) ? requestedYear : mapped.year,
+            quarter: QUARTERS.includes(requestedQuarter) ? requestedQuarter : mapped.quarter,
+          }
+        } else if (!mapped.isScheduled) {
+          normalizedMapped = {
+            ...mapped,
+            isScheduled: false,
+            year: null,
+            quarter: null,
+            startDate: null,
+          }
+        }
+        upsertAvailableInitiatives([normalizedMapped])
+        syncGoalsWithInitiatives([normalizedMapped])
+        const requestedQuarterValue = QUARTERS.includes(updates?.quarter) ? updates.quarter : null
+        const numericRequestedYear = Number(updates?.year)
+        const requestedYearValue = Number.isFinite(numericRequestedYear)
+          ? numericRequestedYear
+          : null
+
+        persistPlacementOverrides((prev) => {
+          const nextPlacements = { ...(prev || {}) }
+          if (requestedScheduleState === false) {
+            nextPlacements[String(initiativeId)] = 'unscheduled'
+          } else if (requestedScheduleState === true && requestedYearValue && requestedQuarterValue) {
+            nextPlacements[String(initiativeId)] = `${requestedYearValue}-${requestedQuarterValue}`
+          } else if (normalizedMapped.isScheduled) {
+            delete nextPlacements[String(initiativeId)]
+          } else {
+            nextPlacements[String(initiativeId)] = 'unscheduled'
+          }
+          return nextPlacements
+        })
+        setLoadError('')
+      } catch (error) {
+        if (!isScheduleMutation) {
+          setLoadError(formatApiError(error, 'Unable to update initiative'))
+          await Promise.all([loadGoals(), loadInitiatives()])
+        } else {
+          console.error('Unable to persist schedule update', error)
+        }
+      }
+    },
+    [
+      activeOrganizationId,
+      getInitiativeSnapshot,
+      loadGoals,
+      loadInitiatives,
+      patchInitiativeInState,
+      persistPlacementOverrides,
+      syncGoalsWithInitiatives,
+      upsertAvailableInitiatives,
+    ]
+  )
 
   return (
     <div className="space-y-5">
@@ -784,28 +1144,16 @@ const Goals = () => {
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-700">
                   {isExpanded ? <FiChevronUp /> : <FiChevronDown />}
                 </span>
-                <div className="text-2xl font-semibold text-gray-900">{goal.title}</div>
+                <div className="inline-flex items-center gap-3">
+                  <div className="text-2xl font-semibold text-gray-900">{goal.title}</div>
+                  <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-gray-100 px-2 text-sm text-gray-700">
+                    {linkedInitiatives.length}
+                  </span>
+                </div>
               </button>
 
               {isExpanded && (
               <div className="flex items-center gap-4">
-                <span className="inline-flex items-center gap-2 rounded-lg bg-green-50 px-4 py-2 text-sm font-semibold text-green-700">
-                  <FiChevronRight />
-                  {goal.statusLabel || 'On Track'}
-                  <FiChevronDown className="text-green-700" />
-                </span>
-
-                <span className="inline-flex items-center gap-2 text-sm font-semibold text-gray-900">
-                  <FiCalendar />
-                  {goal.targetYear}
-                </span>
-
-                <span className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-gray-700">
-                    {Math.min(linkedInitiatives.length, 9)}
-                  </span>
-                </span>
-
                 <div className="relative">
                   <button
                     type="button"
@@ -864,9 +1212,16 @@ const Goals = () => {
                       ) : (
                         linkedInitiatives.map((initiative) => {
                           const statusValue = initiative.status || STATUS_OPTIONS[0]
-                          const scheduleValue = initiative.isScheduled
-                            ? `${initiative.quarter}, ${initiative.year}`
-                            : NOT_SCHEDULED_LABEL
+                          const placementKey = placementOverrides[String(initiative.id)]
+                          const parsedPlacement = parseQuarterSlotKey(placementKey)
+                          const scheduleValue =
+                            placementKey === 'unscheduled'
+                              ? NOT_SCHEDULED_LABEL
+                              : parsedPlacement
+                                ? `${parsedPlacement.quarter}, ${parsedPlacement.year}`
+                                : initiative.isScheduled
+                                  ? `${initiative.quarter}, ${initiative.year}`
+                                  : NOT_SCHEDULED_LABEL
                           const contactName =
                             initiative.contactName ||
                             CONTACTS.find((contact) => Number(contact.id) === Number(initiative.contactId))
@@ -892,12 +1247,9 @@ const Goals = () => {
                                 <select
                                   value={statusValue}
                                   onChange={(event) =>
-                                    handleUpdateInitiativeField(
-                                      goal.id,
-                                      initiative.id,
-                                      'status',
-                                      event.target.value
-                                    )
+                                    handlePersistInitiativePatch(goal.id, initiative.id, {
+                                      status: event.target.value,
+                                    })
                                   }
                                   className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
                                 >
@@ -914,30 +1266,21 @@ const Goals = () => {
                                   onChange={(event) => {
                                     const selected = String(event.target.value)
                                     if (selected === NOT_SCHEDULED_LABEL) {
-                                      handleUpdateInitiativeField(
-                                        goal.id,
-                                        initiative.id,
-                                        'isScheduled',
-                                        false
-                                      )
+                                      handlePersistInitiativePatch(goal.id, initiative.id, {
+                                        isScheduled: false,
+                                        quarter: null,
+                                        year: null,
+                                      })
                                       return
                                     }
                                     const [quarterRaw, yearRaw] = selected.split(',')
                                     const quarter = quarterRaw?.trim()
                                     const year = Number(String(yearRaw || '').trim())
-                                    handleUpdateInitiativeField(
-                                      goal.id,
-                                      initiative.id,
-                                      'quarter',
-                                      quarter
-                                    )
-                                    handleUpdateInitiativeField(goal.id, initiative.id, 'year', year)
-                                    handleUpdateInitiativeField(
-                                      goal.id,
-                                      initiative.id,
-                                      'isScheduled',
-                                      true
-                                    )
+                                    handlePersistInitiativePatch(goal.id, initiative.id, {
+                                      quarter,
+                                      year,
+                                      isScheduled: true,
+                                    })
                                   }}
                                   className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
                                 >
@@ -956,12 +1299,9 @@ const Goals = () => {
                                 <select
                                   value={priorityValue}
                                   onChange={(event) =>
-                                    handleUpdateInitiativeField(
-                                      goal.id,
-                                      initiative.id,
-                                      'priority',
-                                      event.target.value
-                                    )
+                                    handlePersistInitiativePatch(goal.id, initiative.id, {
+                                      priority: event.target.value,
+                                    })
                                   }
                                   className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700"
                                 >
@@ -1121,60 +1461,10 @@ const Goals = () => {
                       setDialogState((prev) => ({ ...prev, goalTitle: event.target.value }))
                     }
                     className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 text-sm text-gray-700"
-                    placeholder="e.g. SOC2 Compliance"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <div className="text-sm font-semibold text-gray-900">Goal status</div>
-                  <select
-                    value={dialogState.goalStatus}
-                    onChange={(event) =>
-                      setDialogState((prev) => ({ ...prev, goalStatus: event.target.value }))
-                    }
-                    className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                  >
-                    <option>On Track</option>
-                    <option>At Risk</option>
-                    <option>Off Track</option>
-                    <option>Completed</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <div className="text-sm font-semibold text-gray-900">Target year</div>
-                  <select
-                    value={dialogState.targetYear}
-                    onChange={(event) =>
-                      setDialogState((prev) => ({ ...prev, targetYear: Number(event.target.value) }))
-                    }
-                    className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                  >
-                    {yearOptions.map((year) => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <div className="text-sm font-semibold text-gray-900">Target period</div>
-                  <select
-                    value={dialogState.targetQuarter}
-                    onChange={(event) =>
-                      setDialogState((prev) => ({ ...prev, targetQuarter: event.target.value }))
-                    }
-                    className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                  >
-                    {QUARTERS.map((quarter) => (
-                      <option key={quarter} value={quarter}>
-                        {quarter}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                     placeholder="e.g. SOC2 Compliance"
+                   />
+                 </div>
+               </div>
 
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-gray-900">Add to</div>
@@ -1186,8 +1476,9 @@ const Goals = () => {
                         ...prev,
                         mode: 'existing',
                         error: '',
-                        existingInitiativeId: '',
+                        existingInitiativeIds: [],
                         newInitiativeTitle: '',
+                        newInitiativeIsScheduled: false,
                       }))
                     }
                     className={`px-4 py-2 text-sm font-semibold ${
@@ -1205,9 +1496,12 @@ const Goals = () => {
                         ...prev,
                         mode: 'new',
                         error: '',
-                        existingInitiativeId: '',
+                        existingInitiativeIds: [],
                         newInitiativeTitle: '',
                         newInitiativePocId: CONTACTS[0]?.id || 1,
+                        newInitiativeIsScheduled: false,
+                        newInitiativeYear: currentYear,
+                        newInitiativeQuarter: QUARTERS[0],
                       }))
                     }
                     className={`px-4 py-2 text-sm font-semibold ${
@@ -1221,30 +1515,55 @@ const Goals = () => {
                 </div>
               </div>
 
-              {dialogState.mode === 'existing' ? (
-                <div className="space-y-2">
-                  <div className="text-sm font-semibold text-gray-900">Existing Initiative</div>
-                  <select
-                    value={dialogState.existingInitiativeId}
-                    onChange={(event) =>
-                      setDialogState((prev) => ({
-                        ...prev,
-                        existingInitiativeId: event.target.value,
-                      }))
-                    }
-                    className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                  >
-                    <option value="">Select initiative</option>
-                    {dialogAvailableInitiatives.map((initiative) => (
-                      <option key={initiative.id} value={initiative.id}>
-                        {initiative.title || `Initiative #${initiative.id}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
+               {dialogState.mode === 'existing' ? (
+                 <div className="space-y-2">
+                   <div className="text-sm font-semibold text-gray-900">Existing Initiative</div>
+                   <Select
+                     isMulti
+                     isSearchable
+                     placeholder={loadingInitiatives ? 'Loading initiatives...' : 'Search initiatives...'}
+                     isDisabled={loadingInitiatives || dialogAvailableInitiatives.length === 0}
+                     options={dialogAvailableInitiatives.map((initiative) => ({
+                       value: String(initiative.id),
+                       label: initiative.title || `Initiative #${initiative.id}`,
+                     }))}
+                     value={(dialogState.existingInitiativeIds || [])
+                       .map((id) => String(id))
+                       .map((id) => {
+                         const match = dialogAvailableInitiatives.find(
+                           (initiative) => String(initiative.id) === id
+                         )
+                         return match
+                           ? { value: id, label: match.title || `Initiative #${match.id}` }
+                           : null
+                       })
+                       .filter(Boolean)}
+                     onChange={(selected) => {
+                       const nextIds = Array.isArray(selected)
+                         ? selected.map((item) => String(item.value))
+                         : []
+                       setDialogState((prev) => ({ ...prev, existingInitiativeIds: nextIds }))
+                     }}
+                     menuPortalTarget={document.body}
+                     styles={{
+                       menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                       control: (base) => ({
+                         ...base,
+                         minHeight: 40,
+                         borderColor: 'rgb(229,231,235)',
+                         boxShadow: 'none',
+                       }),
+                     }}
+                   />
+                   {dialogAvailableInitiatives.length === 0 && !loadingInitiatives && (
+                     <div className="text-xs text-gray-500">
+                       No more initiatives available to link.
+                     </div>
+                   )}
+                 </div>
+                ) : (
+                  <div className="space-y-4">
+                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <div className="text-sm font-semibold text-gray-900">Initiative title</div>
                       <input
@@ -1279,29 +1598,85 @@ const Goals = () => {
                       </select>
                     </div>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <div className="text-sm font-semibold text-gray-900">Scheduled</div>
-                      <select
-                        value={`${dialogState.targetQuarter}, ${dialogState.targetYear}`}
-                        onChange={(event) => {
-                          const [quarterRaw, yearRaw] = String(event.target.value).split(',')
-                          const quarter = quarterRaw?.trim()
-                          const year = Number(String(yearRaw || '').trim())
-                          setDialogState((prev) => ({
-                            ...prev,
-                            targetQuarter: quarter,
-                            targetYear: year,
-                          }))
-                        }}
-                        className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                      >
-                        {scheduleOptions.map((label) => (
-                          <option key={label} value={label}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
+                  <div className="space-y-2">
+                    <div className="text-sm font-semibold text-gray-900">Schedule</div>
+                    <div className="rounded-md border border-gray-200 bg-white p-3">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div
+                          className={`inline-flex h-9 items-center rounded-md border px-3 text-sm font-semibold ${
+                            dialogState.newInitiativeIsScheduled
+                              ? 'border-[rgb(5,117,204)] bg-[rgb(236,245,255)] text-[rgb(5,117,204)]'
+                              : 'border-gray-300 bg-gray-50 text-gray-500'
+                          }`}
+                        >
+                          {dialogState.newInitiativeIsScheduled ? 'Scheduled' : 'Not Scheduled'}
+                        </div>
+                        {!dialogState.newInitiativeIsScheduled ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDialogState((prev) => ({
+                                ...prev,
+                                newInitiativeIsScheduled: true,
+                                newInitiativeYear: Number(prev.newInitiativeYear) || currentYear,
+                                newInitiativeQuarter: prev.newInitiativeQuarter || QUARTERS[0],
+                              }))
+                            }
+                            className="inline-flex h-9 items-center justify-center rounded-md bg-[rgb(5,117,204)] px-3 text-sm font-semibold text-white hover:bg-[rgb(0,97,170)]"
+                          >
+                            Schedule
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDialogState((prev) => ({
+                                ...prev,
+                                newInitiativeIsScheduled: false,
+                              }))
+                            }
+                            className="inline-flex h-9 items-center justify-center rounded-md border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={dialogState.newInitiativeYear}
+                          onChange={(event) =>
+                            setDialogState((prev) => ({
+                              ...prev,
+                              newInitiativeYear: Number(event.target.value),
+                            }))
+                          }
+                          disabled={!dialogState.newInitiativeIsScheduled}
+                          className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 disabled:bg-gray-50 disabled:text-gray-500"
+                        >
+                          {yearOptions.map((year) => (
+                            <option key={year} value={year}>
+                              {year}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={dialogState.newInitiativeQuarter}
+                          onChange={(event) =>
+                            setDialogState((prev) => ({
+                              ...prev,
+                              newInitiativeQuarter: event.target.value,
+                            }))
+                          }
+                          disabled={!dialogState.newInitiativeIsScheduled}
+                          className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 disabled:bg-gray-50 disabled:text-gray-500"
+                        >
+                          {QUARTERS.map((quarter) => (
+                            <option key={quarter} value={quarter}>
+                              {quarter}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </div>
                 </div>

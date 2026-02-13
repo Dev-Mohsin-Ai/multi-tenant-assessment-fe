@@ -48,7 +48,7 @@ const WorkspaceLayout = ({
   }
 
   return (
-    <div className="bg-[rgb(37,38,45)] min-h-screen">
+    <div className="bg-[rgb(12,19,34)] min-h-screen">
       <DashboardHeader />
       <SideTopbar
         items={navItems}

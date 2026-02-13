@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   FiDownload,
@@ -31,6 +31,40 @@ import { useAppStore } from '../../shared/store/useAppStore'
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
 const OPEN_INITIATIVE_KEY = 'openInitiativeId'
+const UNSCHEDULED_PLACEMENTS_KEY = 'unscheduledPlacements'
+const isQuarterSlotKey = (value) => /^\d{4}-Q[1-4]$/.test(String(value || ''))
+
+const formatApiError = (error, fallback) => {
+  const status = error?.response?.status
+  const data = error?.response?.data
+
+  const detail =
+    typeof data === 'string'
+      ? data
+      : typeof data?.detail === 'string'
+        ? data.detail
+        : Array.isArray(data?.detail)
+          ? data.detail.map((item) => item?.msg || item?.message || '').filter(Boolean).join(', ')
+          : ''
+
+  const statusLabel = status ? ` (HTTP ${status})` : ''
+  const detailLabel = detail ? `: ${detail}` : ''
+
+  return `${fallback}${statusLabel}${detailLabel}`
+}
+
+const isGoalNotFoundError = (error) => {
+  const status = error?.response?.status
+  const data = error?.response?.data
+  const detail =
+    typeof data === 'string'
+      ? data
+      : typeof data?.detail === 'string'
+        ? data.detail
+        : ''
+
+  return Number(status) === 404 && /goal not found/i.test(detail)
+}
 
 const Roadmap = () => {
   const navigate = useNavigate()
@@ -89,6 +123,63 @@ const Roadmap = () => {
   })
   
   const [draggingId, setDraggingId] = useState(null)
+  const topScrollRef = useRef(null)
+  const mainScrollRef = useRef(null)
+  const slotGridRef = useRef(null)
+  const syncingScrollRef = useRef(null)
+  const [topScrollWidth, setTopScrollWidth] = useState(0)
+
+  const placementsStorageKey = useMemo(() => {
+    const organizationId = Number(activeOrganizationId)
+    if (!organizationId) {
+      return UNSCHEDULED_PLACEMENTS_KEY
+    }
+    return `${UNSCHEDULED_PLACEMENTS_KEY}:${organizationId}`
+  }, [activeOrganizationId])
+
+  const [unscheduledPlacements, setUnscheduledPlacements] = useState(() => {
+    try {
+      const raw = localStorage.getItem(UNSCHEDULED_PLACEMENTS_KEY)
+      return raw ? JSON.parse(raw) : {}
+    } catch {
+      return {}
+    }
+  })
+  const [placementsHydrated, setPlacementsHydrated] = useState(false)
+
+  useEffect(() => {
+    setPlacementsHydrated(false)
+    try {
+      const raw = localStorage.getItem(placementsStorageKey)
+      if (raw) {
+        setUnscheduledPlacements(JSON.parse(raw))
+      } else if (placementsStorageKey !== UNSCHEDULED_PLACEMENTS_KEY) {
+        const legacyRaw = localStorage.getItem(UNSCHEDULED_PLACEMENTS_KEY)
+        setUnscheduledPlacements(legacyRaw ? JSON.parse(legacyRaw) : {})
+      } else {
+        setUnscheduledPlacements({})
+      }
+    } catch {
+      setUnscheduledPlacements({})
+    } finally {
+      setPlacementsHydrated(true)
+    }
+  }, [placementsStorageKey])
+
+  useEffect(() => {
+    if (!placementsHydrated) {
+      return
+    }
+    try {
+      const serialized = JSON.stringify(unscheduledPlacements || {})
+      localStorage.setItem(placementsStorageKey, serialized)
+      if (placementsStorageKey !== UNSCHEDULED_PLACEMENTS_KEY) {
+        localStorage.setItem(UNSCHEDULED_PLACEMENTS_KEY, serialized)
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, [placementsHydrated, placementsStorageKey, unscheduledPlacements])
   const [pendingLink, setPendingLink] = useState(() => {
     const pending = localStorage.getItem(PENDING_LINK_KEY)
     if (!pending) {
@@ -215,17 +306,97 @@ const Roadmap = () => {
     })
   }, [filters, initiatives])
 
-  const scheduledInitiatives = filteredInitiatives.filter(
-    (initiative) => initiative.isScheduled
-  )
-  const unscheduledInitiatives = filteredInitiatives.filter(
-    (initiative) => !initiative.isScheduled
-  )
+  const scheduledInitiatives = filteredInitiatives.filter((initiative) => {
+    const placementKey = unscheduledPlacements?.[String(initiative.id)]
+    if (placementKey === 'unscheduled') {
+      return false
+    }
+    return initiative.isScheduled
+  })
+  const unscheduledInitiatives = filteredInitiatives.filter((initiative) => {
+    const placementKey = unscheduledPlacements?.[String(initiative.id)]
+    if (placementKey === 'unscheduled') {
+      return true
+    }
+    return !initiative.isScheduled
+  })
+
+  const windowSlotKeys = useMemo(() => {
+    return new Set(windowSlots.map((slot) => `${slot.year}-${slot.quarter}`))
+  }, [windowSlots])
+
+  const placedUnscheduledBySlot = useMemo(() => {
+    const map = new Map()
+    unscheduledInitiatives.forEach((initiative) => {
+      const key = unscheduledPlacements?.[String(initiative.id)]
+      if (!key || !windowSlotKeys.has(String(key))) {
+        return
+      }
+      if (!map.has(key)) {
+        map.set(key, [])
+      }
+      map.get(key).push(initiative)
+    })
+    return map
+  }, [unscheduledInitiatives, unscheduledPlacements, windowSlotKeys])
+
+  const unplacedUnscheduledInitiatives = useMemo(() => {
+    const unscheduledIndexById = new Map(
+      unscheduledInitiatives.map((initiative, index) => [String(initiative.id), index])
+    )
+
+    return unscheduledInitiatives
+      .filter((initiative) => {
+        const key = unscheduledPlacements?.[String(initiative.id)]
+        if (!key) {
+          return true
+        }
+        return !windowSlotKeys.has(String(key))
+      })
+      .sort((left, right) => {
+        const leftOrder = Number(left.order)
+        const rightOrder = Number(right.order)
+        const resolvedLeftOrder = Number.isFinite(leftOrder) ? leftOrder : Number.MAX_SAFE_INTEGER
+        const resolvedRightOrder = Number.isFinite(rightOrder) ? rightOrder : Number.MAX_SAFE_INTEGER
+        if (resolvedLeftOrder !== resolvedRightOrder) {
+          return resolvedLeftOrder - resolvedRightOrder
+        }
+        return (
+          (unscheduledIndexById.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) -
+          (unscheduledIndexById.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER)
+        )
+      })
+  }, [unscheduledInitiatives, unscheduledPlacements, windowSlotKeys])
+
+  useEffect(() => {
+    if (loadingInitiatives) {
+      return
+    }
+    if (!unscheduledPlacements || Object.keys(unscheduledPlacements).length === 0) {
+      return
+    }
+    const currentIds = new Set(initiatives.map((item) => String(item.id)))
+    if (currentIds.size === 0) {
+      return
+    }
+    const next = Object.entries(unscheduledPlacements).reduce((acc, [id, key]) => {
+      if (!currentIds.has(String(id))) {
+        return acc
+      }
+      acc[id] = key
+      return acc
+    }, {})
+    if (Object.keys(next).length !== Object.keys(unscheduledPlacements).length) {
+      setUnscheduledPlacements(next)
+    }
+  }, [initiatives, loadingInitiatives, unscheduledPlacements])
 
   const initiativesBySlot = useMemo(() => {
     const map = new Map()
     scheduledInitiatives.forEach((initiative) => {
-      const key = `${initiative.year}-${initiative.quarter}`
+      const placementKey = unscheduledPlacements?.[String(initiative.id)]
+      const key =
+        isQuarterSlotKey(placementKey) ? String(placementKey) : `${initiative.year}-${initiative.quarter}`
       if (!map.has(key)) {
         map.set(key, [])
       }
@@ -238,34 +409,56 @@ const Roadmap = () => {
       )
     })
     return map
-  }, [scheduledInitiatives])
-
-  const unscheduledSlotIndex = useMemo(() => {
-    if (unscheduledInitiatives.length === 0) {
-      return -1
-    }
-
-    const slotIndexWithNoItems = windowSlots.findIndex((slot) => {
-      const key = `${slot.year}-${slot.quarter}`
-      const items = initiativesBySlot.get(key) || []
-      return items.length === 0
-    })
-
-    return slotIndexWithNoItems >= 0 ? slotIndexWithNoItems : 0
-  }, [initiativesBySlot, unscheduledInitiatives.length, windowSlots])
+  }, [scheduledInitiatives, unscheduledPlacements])
 
   const displaySlots = useMemo(() => {
-    if (unscheduledSlotIndex < 0) {
-      return windowSlots.map((slot) => ({ type: 'scheduled', ...slot }))
+    const slots = windowSlots.map((slot) => ({
+      type: 'scheduled',
+      ...slot,
+      key: `${slot.year}-${slot.quarter}`,
+    }))
+
+    if (unscheduledInitiatives.length > 0) {
+      slots.push({ type: 'unscheduled', key: 'unscheduled' })
     }
 
-    return windowSlots.map((slot, index) => {
-      if (index === unscheduledSlotIndex) {
-        return { type: 'unscheduled', key: 'unscheduled' }
-      }
-      return { type: 'scheduled', ...slot }
-    })
-  }, [unscheduledSlotIndex, windowSlots])
+    return slots
+  }, [unscheduledInitiatives.length, windowSlots])
+
+  useEffect(() => {
+    const updateTopScrollWidth = () => {
+      const width = slotGridRef.current?.scrollWidth || 0
+      setTopScrollWidth(width)
+    }
+
+    updateTopScrollWidth()
+    window.addEventListener('resize', updateTopScrollWidth)
+    return () => window.removeEventListener('resize', updateTopScrollWidth)
+  }, [displaySlots.length])
+
+  const syncScroll = (sourceRef, targetRef, sourceKey) => {
+    const source = sourceRef.current
+    const target = targetRef.current
+    if (!source || !target) {
+      return
+    }
+
+    if (syncingScrollRef.current === sourceKey) {
+      syncingScrollRef.current = null
+      return
+    }
+
+    syncingScrollRef.current = sourceKey
+    target.scrollLeft = source.scrollLeft
+  }
+
+  const handleTopScroll = () => {
+    syncScroll(topScrollRef, mainScrollRef, 'main')
+  }
+
+  const handleMainScroll = () => {
+    syncScroll(mainScrollRef, topScrollRef, 'top')
+  }
 
   const handleCurrentQuarter = () => {
     setWindowStart({ year: currentYear, quarterIndex: currentQuarterIndex })
@@ -323,13 +516,45 @@ const Roadmap = () => {
         const getResponseKey = (item) =>
           String(item?.responseId ?? item?.subcategoryId ?? item?.id ?? '')
 
-        const updated = await updateInitiative(
-          drawerState.initiative.id,
-          mapInitiativeToApi(payload, organizationId, { goalId: payload?.goalId })
-        )
+        const apiPayload = mapInitiativeToApi(payload, organizationId, { goalId: payload?.goalId })
+        let updated
+        try {
+          updated = await updateInitiative(drawerState.initiative.id, apiPayload)
+        } catch (error) {
+          if (!isGoalNotFoundError(error)) {
+            throw error
+          }
+
+          // Initiative has an invalid goal reference; unlink goal and retry so schedule edits can still be saved.
+          const retryPayload = mapInitiativeToApi(
+            { ...payload, goalId: null },
+            organizationId,
+            { goalId: null }
+          )
+          updated = await updateInitiative(drawerState.initiative.id, retryPayload)
+          payload = { ...payload, goalId: null }
+        }
         const mapped = mapInitiativeFromApi(updated, {
           linkedItemsById: { [payload.id]: payload.linkedItems || [] },
         })
+        const normalizedMapped = payload.isScheduled
+          ? {
+              ...mapped,
+              isScheduled: true,
+              year: payload.year ?? mapped.year,
+              quarter: payload.quarter ?? mapped.quarter,
+              startDate:
+                payload.year && payload.quarter
+                  ? getQuarterStartDate(payload.year, payload.quarter)
+                  : mapped.startDate,
+            }
+          : {
+              ...mapped,
+              isScheduled: false,
+              year: null,
+              quarter: null,
+              startDate: null,
+            }
 
         try {
           const linksRaw = localStorage.getItem(INITIATIVE_LINKS_KEY)
@@ -374,11 +599,29 @@ const Roadmap = () => {
         }
 
         setInitiatives((prev) =>
-          prev.map((item) => (item.id === drawerState.initiative.id ? mapped : item))
+          prev.map((item) =>
+            String(item.id) === String(drawerState.initiative.id) ? normalizedMapped : item
+          )
         )
+
+        setUnscheduledPlacements((prev) => {
+          const next = { ...(prev || {}) }
+          const placementId = String(normalizedMapped.id ?? drawerState.initiative.id)
+          if (!payload.isScheduled) {
+            next[placementId] = 'unscheduled'
+            return next
+          }
+          if (payload.year && payload.quarter) {
+            next[placementId] = `${payload.year}-${payload.quarter}`
+            return next
+          }
+          delete next[placementId]
+          return next
+        })
+
         handleCloseDrawer()
-      } catch {
-        setLoadError('Unable to update initiative')
+      } catch (error) {
+        setLoadError(formatApiError(error, 'Unable to update initiative'))
       }
       return
     }
@@ -425,8 +668,8 @@ const Roadmap = () => {
       }
       setInitiatives((prev) => [mapped, ...prev])
       handleCloseDrawer()
-    } catch {
-      setLoadError('Unable to create initiative')
+    } catch (error) {
+      setLoadError(formatApiError(error, 'Unable to create initiative'))
     }
   }
 
@@ -478,17 +721,139 @@ const Roadmap = () => {
     setDraggingId(null)
   }
 
-  const handleDrop = (event, year, quarter) => {
-    event.preventDefault()
-    const id = event.dataTransfer.getData('text/plain')
+  const resolveSlotKeyForItem = (item) => {
+    if (!item) {
+      return 'unscheduled'
+    }
+    const placementKey = unscheduledPlacements?.[String(item.id)]
+    if (placementKey === 'unscheduled') {
+      return 'unscheduled'
+    }
+    if (isQuarterSlotKey(placementKey)) {
+      return String(placementKey)
+    }
+    if (item.isScheduled && item.year && item.quarter) {
+      return `${item.year}-${item.quarter}`
+    }
+    return placementKey || 'unscheduled'
+  }
+
+  const moveInitiativeToQuarter = (id, year, quarter, targetInitiativeId = null) => {
     if (!id) {
       return
     }
+
+    const moved = initiatives.find((item) => String(item.id) === String(id))
+    if (!moved) {
+      return
+    }
+
+    const targetSlotKey = `${year}-${quarter}`
+    const targetInitiative = targetInitiativeId
+      ? initiatives.find((item) => String(item.id) === String(targetInitiativeId))
+      : null
+    const rawTargetOrder = Number(targetInitiative?.order)
+    const insertOrder = Number.isFinite(rawTargetOrder) ? rawTargetOrder : null
+
+    if (!moved.isScheduled) {
+      setUnscheduledPlacements((prev) => ({ ...(prev || {}), [String(id)]: targetSlotKey }))
+      setInitiatives((prev) =>
+        prev.map((item) => {
+          const itemId = String(item.id)
+          const itemSlot =
+            itemId === String(id)
+              ? targetSlotKey
+              : item.isScheduled
+                ? `${item.year}-${item.quarter}`
+                : (unscheduledPlacements?.[itemId] || null)
+          const currentOrder = Number(item.order)
+          const resolvedOrder = Number.isFinite(currentOrder) ? currentOrder : -1
+          if (
+            insertOrder !== null &&
+            itemId !== String(id) &&
+            itemSlot === targetSlotKey &&
+            resolvedOrder >= insertOrder
+          ) {
+            return { ...item, order: resolvedOrder + 1 }
+          }
+          if (itemId === String(id)) {
+            if (insertOrder !== null) {
+              return { ...item, order: insertOrder }
+            }
+            const maxOrder = prev.reduce((max, candidate) => {
+              const candidateId = String(candidate.id)
+              const candidateSlot =
+                candidateId === String(id)
+                  ? targetSlotKey
+                  : candidate.isScheduled
+                    ? `${candidate.year}-${candidate.quarter}`
+                    : (unscheduledPlacements?.[candidateId] || null)
+              if (candidateSlot !== targetSlotKey) {
+                return max
+              }
+              const candidateOrder = Number(candidate.order)
+              return Number.isFinite(candidateOrder) ? Math.max(max, candidateOrder) : max
+            }, -1)
+            return { ...item, order: maxOrder + 1 }
+          }
+          return item
+        })
+      )
+      return
+    }
+
+    setUnscheduledPlacements((prev) => {
+      if (!prev || !Object.prototype.hasOwnProperty.call(prev, String(id))) {
+        return prev
+      }
+      const next = { ...prev }
+      delete next[String(id)]
+      return next
+    })
+
     setInitiatives((prev) =>
       prev.map((item) => {
-        if (String(item.id) !== String(id)) {
+        const itemId = String(item.id)
+        const itemSlot =
+          itemId === String(id)
+            ? targetSlotKey
+            : item.isScheduled
+              ? `${item.year}-${item.quarter}`
+              : (unscheduledPlacements?.[itemId] || null)
+        const currentOrder = Number(item.order)
+        const resolvedOrder = Number.isFinite(currentOrder) ? currentOrder : -1
+        if (
+          insertOrder !== null &&
+          itemId !== String(id) &&
+          itemSlot === targetSlotKey &&
+          resolvedOrder >= insertOrder
+        ) {
+          return { ...item, order: resolvedOrder + 1 }
+        }
+
+        if (itemId !== String(id)) {
           return item
         }
+
+        let nextOrder = insertOrder
+        if (nextOrder === null) {
+          const maxOrder = prev.reduce((max, candidate) => {
+            const candidateId = String(candidate.id)
+            if (candidateId === String(id)) {
+              return max
+            }
+            const candidateSlot = candidate.isScheduled
+              ? `${candidate.year}-${candidate.quarter}`
+              : (unscheduledPlacements?.[candidateId] || null)
+            if (candidateSlot !== targetSlotKey) {
+              return max
+            }
+            const candidateOrder = Number(candidate.order)
+            return Number.isFinite(candidateOrder) ? Math.max(max, candidateOrder) : max
+          }, -1)
+          nextOrder = maxOrder + 1
+        }
+
         const startDate = getQuarterStartDate(year, quarter)
         return {
           ...item,
@@ -496,12 +861,13 @@ const Roadmap = () => {
           year,
           quarter,
           startDate,
+          order: nextOrder,
         }
       })
     )
+
     const organizationId = Number(activeOrganizationId)
-    const moved = initiatives.find((item) => String(item.id) === String(id))
-    if (organizationId && moved) {
+    if (organizationId) {
       const startDate = getQuarterStartDate(year, quarter)
       const updated = {
         ...moved,
@@ -509,12 +875,39 @@ const Roadmap = () => {
         year,
         quarter,
         startDate,
+        order: insertOrder ?? moved.order,
       }
-      updateInitiative(id, mapInitiativeToApi(updated, organizationId, { goalId: updated?.goalId })).catch(() => {
-        setLoadError('Unable to update schedule')
+      const apiPayload = mapInitiativeToApi(updated, organizationId, { goalId: updated?.goalId })
+      updateInitiative(id, apiPayload).catch((error) => {
+        if (isGoalNotFoundError(error)) {
+          const retry = mapInitiativeToApi({ ...updated, goalId: null }, organizationId, {
+            goalId: null,
+          })
+          updateInitiative(id, retry)
+            .then(() => {
+              setInitiatives((prev) =>
+                prev.map((item) =>
+                  String(item.id) === String(id) ? { ...item, goalId: null } : item
+                )
+              )
+            })
+            .catch((retryError) => {
+              setLoadError(formatApiError(retryError, 'Unable to update schedule'))
+              setInitiatives((prev) =>
+                prev.map((item) => (String(item.id) === String(id) ? moved : item))
+              )
+            })
+          return
+        }
+
+        setLoadError(formatApiError(error, 'Unable to update schedule'))
+        setInitiatives((prev) =>
+          prev.map((item) => (String(item.id) === String(id) ? moved : item))
+        )
       })
     }
-    if (drawerState.open && drawerState.initiative?.id === id) {
+
+    if (drawerState.open && String(drawerState.initiative?.id) === String(id)) {
       const startDate = getQuarterStartDate(year, quarter)
       setDrawerState((prev) => ({
         ...prev,
@@ -524,46 +917,182 @@ const Roadmap = () => {
           year,
           quarter,
           startDate,
+          order: insertOrder ?? prev.initiative?.order,
         },
       }))
     }
-    setDraggingId(null)
   }
 
-  const handleDropUnscheduled = (event) => {
-    event.preventDefault()
-    const id = event.dataTransfer.getData('text/plain')
+  const moveInitiativeToUnscheduled = (id, targetInitiativeId = null) => {
     if (!id) {
       return
     }
+
+    const moved = initiatives.find((item) => String(item.id) === String(id))
+    if (!moved) {
+      return
+    }
+
+    const targetInitiative = targetInitiativeId
+      ? initiatives.find((item) => String(item.id) === String(targetInitiativeId))
+      : null
+    const rawTargetOrder = Number(targetInitiative?.order)
+    const insertOrder = Number.isFinite(rawTargetOrder) ? rawTargetOrder : null
+
+    setUnscheduledPlacements((prev) => {
+      if (!prev || !Object.prototype.hasOwnProperty.call(prev, String(id))) {
+        return prev
+      }
+      const next = { ...prev }
+      delete next[String(id)]
+      return next
+    })
+
     setInitiatives((prev) =>
       prev.map((item) => {
-        if (String(item.id) !== String(id)) {
+        const itemId = String(item.id)
+        const itemSlot =
+          itemId === String(id)
+            ? 'unscheduled'
+            : item.isScheduled
+              ? `${item.year}-${item.quarter}`
+              : (unscheduledPlacements?.[itemId] || 'unscheduled')
+        const currentOrder = Number(item.order)
+        const resolvedOrder = Number.isFinite(currentOrder) ? currentOrder : -1
+
+        if (
+          insertOrder !== null &&
+          itemId !== String(id) &&
+          itemSlot === 'unscheduled' &&
+          resolvedOrder >= insertOrder
+        ) {
+          return { ...item, order: resolvedOrder + 1 }
+        }
+
+        if (itemId !== String(id)) {
           return item
         }
+
+        let nextOrder = insertOrder
+        if (nextOrder === null) {
+          const maxOrder = prev.reduce((max, candidate) => {
+            const candidateId = String(candidate.id)
+            const candidateSlot =
+              candidateId === String(id)
+                ? 'unscheduled'
+                : candidate.isScheduled
+                  ? `${candidate.year}-${candidate.quarter}`
+                  : (unscheduledPlacements?.[candidateId] || 'unscheduled')
+            if (candidateSlot !== 'unscheduled') {
+              return max
+            }
+            const candidateOrder = Number(candidate.order)
+            return Number.isFinite(candidateOrder) ? Math.max(max, candidateOrder) : max
+          }, -1)
+          nextOrder = maxOrder + 1
+        }
+
         return {
           ...item,
           isScheduled: false,
           year: null,
           quarter: null,
           startDate: null,
+          order: nextOrder,
         }
       })
     )
+
+    if (!moved.isScheduled) {
+      return
+    }
+
     const organizationId = Number(activeOrganizationId)
-    const moved = initiatives.find((item) => String(item.id) === String(id))
-    if (organizationId && moved) {
+    if (organizationId) {
       const updated = {
         ...moved,
         isScheduled: false,
         year: null,
         quarter: null,
         startDate: null,
+        order: insertOrder ?? moved.order,
       }
-      updateInitiative(id, mapInitiativeToApi(updated, organizationId, { goalId: updated?.goalId })).catch(() => {
-        setLoadError('Unable to update schedule')
+      const apiPayload = mapInitiativeToApi(updated, organizationId, { goalId: updated?.goalId })
+      updateInitiative(id, apiPayload).catch((error) => {
+        if (isGoalNotFoundError(error)) {
+          const retry = mapInitiativeToApi({ ...updated, goalId: null }, organizationId, {
+            goalId: null,
+          })
+          updateInitiative(id, retry)
+            .then(() => {
+              setInitiatives((prev) =>
+                prev.map((item) =>
+                  String(item.id) === String(id) ? { ...item, goalId: null } : item
+                )
+              )
+            })
+            .catch((retryError) => {
+              setLoadError(formatApiError(retryError, 'Unable to update schedule'))
+              setInitiatives((prev) =>
+                prev.map((item) => (String(item.id) === String(id) ? moved : item))
+              )
+            })
+          return
+        }
+
+        setLoadError(formatApiError(error, 'Unable to update schedule'))
+        setInitiatives((prev) =>
+          prev.map((item) => (String(item.id) === String(id) ? moved : item))
+        )
       })
     }
+  }
+
+  const handleDropOnCard = (sourceId, targetInitiative, targetSlot) => {
+    if (!sourceId || !targetInitiative) {
+      return
+    }
+
+    const source = initiatives.find((item) => String(item.id) === String(sourceId))
+    if (!source || String(source.id) === String(targetInitiative.id)) {
+      return
+    }
+
+    const sourceSlot = resolveSlotKeyForItem(source)
+    const targetSlotKey =
+      targetSlot?.type === 'scheduled'
+        ? `${targetSlot.year}-${targetSlot.quarter}`
+        : 'unscheduled'
+
+    if (sourceSlot === targetSlotKey) {
+      handleReorderInQuarter(sourceId, targetInitiative.id)
+      return
+    }
+
+    if (targetSlot?.type === 'scheduled') {
+      moveInitiativeToQuarter(
+        sourceId,
+        targetSlot.year,
+        targetSlot.quarter,
+        targetInitiative.id
+      )
+      return
+    }
+
+    moveInitiativeToUnscheduled(sourceId, targetInitiative.id)
+  }
+
+  const handleDrop = (event, year, quarter) => {
+    event.preventDefault()
+    const id = event.dataTransfer.getData('text/plain')
+    moveInitiativeToQuarter(id, year, quarter)
+    setDraggingId(null)
+  }
+
+  const handleDropUnscheduled = (event) => {
+    event.preventDefault()
+    const id = event.dataTransfer.getData('text/plain')
+    moveInitiativeToUnscheduled(id)
     setDraggingId(null)
   }
 
@@ -579,43 +1108,57 @@ const Roadmap = () => {
       if (!source || !target) {
         return prev
       }
-      if (
-        source.year !== target.year ||
-        source.quarter !== target.quarter ||
-        !source.isScheduled ||
-        !target.isScheduled
-      ) {
+
+      const resolveSlotKey = (item) => {
+        if (item.isScheduled && item.year && item.quarter) {
+          return `${item.year}-${item.quarter}`
+        }
+        return unscheduledPlacements?.[String(item.id)] || 'unscheduled'
+      }
+
+      const sourceSlot = resolveSlotKey(source)
+      const targetSlot = resolveSlotKey(target)
+      if (sourceSlot !== targetSlot) {
         return prev
       }
-      const sameBucket = prev.filter(
-        (item) =>
-          item.isScheduled &&
-          item.year === source.year &&
-          item.quarter === source.quarter
-      )
-      const others = prev.filter(
-        (item) =>
-          !(
-            item.isScheduled &&
-            item.year === source.year &&
-            item.quarter === source.quarter
-          )
-      )
-      const ordered = sameBucket
-        .slice()
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      const sourceIndex = ordered.findIndex((item) => item.id === source.id)
-      const targetIndex = ordered.findIndex((item) => item.id === target.id)
+
+      const slotEntries = prev
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => resolveSlotKey(item) === sourceSlot)
+        .sort((left, right) => {
+          const leftOrder = Number(left.item.order)
+          const rightOrder = Number(right.item.order)
+          const resolvedLeftOrder = Number.isFinite(leftOrder) ? leftOrder : left.index
+          const resolvedRightOrder = Number.isFinite(rightOrder) ? rightOrder : right.index
+          return resolvedLeftOrder - resolvedRightOrder
+        })
+
+      const ordered = slotEntries.map(({ item }) => item)
+      const sourceIndex = ordered.findIndex((item) => String(item.id) === String(source.id))
+      const targetIndex = ordered.findIndex((item) => String(item.id) === String(target.id))
       if (sourceIndex === -1 || targetIndex === -1) {
         return prev
       }
-      const [moved] = ordered.splice(sourceIndex, 1)
-      ordered.splice(targetIndex, 0, moved)
-      const reordered = ordered.map((item, index) => ({
-        ...item,
-        order: index,
-      }))
-      return [...others, ...reordered]
+      if (sourceIndex === targetIndex) {
+        return prev
+      }
+
+      const swapped = ordered.slice()
+      const sourceItem = swapped[sourceIndex]
+      swapped[sourceIndex] = swapped[targetIndex]
+      swapped[targetIndex] = sourceItem
+
+      const nextOrderById = new Map(
+        swapped.map((item, index) => [String(item.id), index])
+      )
+
+      return prev.map((item) => {
+        const nextOrder = nextOrderById.get(String(item.id))
+        if (nextOrder === undefined) {
+          return item
+        }
+        return { ...item, order: nextOrder }
+      })
     })
   }
 
@@ -738,15 +1281,30 @@ const Roadmap = () => {
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
           <div className="text-lg font-semibold text-gray-900">
-            {windowSlots[0].quarter} {windowSlots[0].year} –{' '}
+            {windowSlots[0].quarter} {windowSlots[0].year} -{' '}
             {windowSlots[windowSlots.length - 1].quarter}{' '}
             {windowSlots[windowSlots.length - 1].year}
           </div>
         </div>
-        <div className="min-w-0 grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
+        <div
+          ref={topScrollRef}
+          onScroll={handleTopScroll}
+          className="overflow-x-auto border-b border-gray-100 px-4 py-2"
+        >
+          <div style={{ width: topScrollWidth || '100%', height: 1 }} />
+        </div>
+        <div
+          ref={mainScrollRef}
+          onScroll={handleMainScroll}
+          className="overflow-x-auto px-4 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <div
+            ref={slotGridRef}
+            className="grid min-w-0 grid-flow-col auto-cols-[minmax(280px,1fr)] gap-4 pt-4"
+          >
           {displaySlots.map((slot) => {
             if (slot.type === 'unscheduled') {
-              const totalOneTime = unscheduledInitiatives.reduce(
+              const totalOneTime = unplacedUnscheduledInitiatives.reduce(
                 (sum, item) =>
                   sum +
                   (item.oneTimeFees || []).reduce(
@@ -755,7 +1313,7 @@ const Roadmap = () => {
                   ),
                 0
               )
-              const totalRecurringMonthly = unscheduledInitiatives.reduce(
+              const totalRecurringMonthly = unplacedUnscheduledInitiatives.reduce(
                 (sum, item) =>
                   sum +
                   (item.recurringFees || []).reduce((inner, fee) => {
@@ -795,16 +1353,17 @@ const Roadmap = () => {
                     {(totalRecurringMonthly * 12).toFixed(2)}/Y
                   </div>
                   <div className="space-y-3 max-h-105 overflow-y-auto pr-1">
-                    {unscheduledInitiatives.map((initiative) => (
+                    {unplacedUnscheduledInitiatives.map((initiative) => (
                       <InitiativeCard
                         key={initiative.id}
                         initiative={initiative}
+                        placementLabel="Not Scheduled"
                         onClick={() => handleOpenEdit(initiative)}
                         onDragStart={(event) => handleDragStart(event, initiative)}
                         onDragEnd={handleDragEnd}
                         draggingId={draggingId}
                         onDropOnCard={(sourceId) =>
-                          handleReorderInQuarter(sourceId, initiative.id)
+                          handleDropOnCard(sourceId, initiative, { type: 'unscheduled' })
                         }
                         onStatusChange={(status) =>
                           handleStatusUpdate(initiative, status)
@@ -816,8 +1375,19 @@ const Roadmap = () => {
               )
             }
 
-            const key = `${slot.year}-${slot.quarter}`
-            const items = initiativesBySlot.get(key) || []
+            const items = initiativesBySlot.get(slot.key) || []
+            const placedUnscheduled = placedUnscheduledBySlot.get(slot.key) || []
+            const combinedItems = [...items, ...placedUnscheduled].sort((left, right) => {
+              const leftOrder = Number(left.order)
+              const rightOrder = Number(right.order)
+              const resolvedLeftOrder = Number.isFinite(leftOrder)
+                ? leftOrder
+                : Number.MAX_SAFE_INTEGER
+              const resolvedRightOrder = Number.isFinite(rightOrder)
+                ? rightOrder
+                : Number.MAX_SAFE_INTEGER
+              return resolvedLeftOrder - resolvedRightOrder
+            })
             const totalOneTime = items.reduce(
               (sum, item) =>
                 sum +
@@ -844,7 +1414,7 @@ const Roadmap = () => {
 
             return (
               <div
-                key={key}
+                key={slot.key}
                 className="min-w-0 w-full rounded-lg border border-dashed border-gray-200 bg-gray-50/70 p-3"
                 onDrop={(event) => handleDrop(event, slot.year, slot.quarter)}
                 onDragOver={handleDragOver}
@@ -867,21 +1437,28 @@ const Roadmap = () => {
                   {(totalRecurringMonthly * 12).toFixed(2)}/Y
                 </div>
                 <div className="space-y-3 max-h-105 overflow-y-auto pr-1">
-                  {items.length === 0 ? (
+                  {combinedItems.length === 0 ? (
                     <div className="rounded-md border border-dashed border-gray-200 bg-white px-3 py-6 text-center text-xs text-gray-400">
                       No initiative added
                     </div>
                   ) : (
-                    items.map((initiative) => (
+                    combinedItems.map((initiative) => (
                       <InitiativeCard
                         key={initiative.id}
                         initiative={initiative}
+                        placementLabel={
+                          initiative.isScheduled ? null : `${slot.quarter} ${slot.year}`
+                        }
                         onClick={() => handleOpenEdit(initiative)}
                         onDragStart={(event) => handleDragStart(event, initiative)}
                         onDragEnd={handleDragEnd}
                         draggingId={draggingId}
                         onDropOnCard={(sourceId) =>
-                          handleReorderInQuarter(sourceId, initiative.id)
+                          handleDropOnCard(sourceId, initiative, {
+                            type: 'scheduled',
+                            year: slot.year,
+                            quarter: slot.quarter,
+                          })
                         }
                         onStatusChange={(status) => handleStatusUpdate(initiative, status)}
                       />
@@ -891,6 +1468,7 @@ const Roadmap = () => {
               </div>
             )
           })}
+          </div>
         </div>
       </div>
 
@@ -915,6 +1493,7 @@ const Roadmap = () => {
 
 const InitiativeCard = ({
   initiative,
+  placementLabel,
   onClick,
   onDragStart,
   onDragEnd,
@@ -939,6 +1518,12 @@ const InitiativeCard = ({
     return sum + perPersonAmount
   }, 0)
   const totalRecurringAnnual = totalRecurringMonthly * 12
+  const scheduleLabel = placementLabel
+    ? placementLabel
+    : initiative.isScheduled
+      ? `${initiative.quarter} ${initiative.year}`
+      : 'Not Scheduled'
+
   return (
     <div
       role="button"
@@ -948,9 +1533,11 @@ const InitiativeCard = ({
       onDragEnd={onDragEnd}
       onDragOver={(event) => {
         event.preventDefault()
+        event.stopPropagation()
       }}
       onDrop={(event) => {
         event.preventDefault()
+        event.stopPropagation()
         if (onDropOnCard) {
           onDropOnCard(event.dataTransfer.getData('text/plain'))
         }
@@ -971,11 +1558,7 @@ const InitiativeCard = ({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">{initiative.title}</h3>
-          <div className="mt-1 text-xs text-gray-500">
-            {initiative.isScheduled
-              ? `${initiative.quarter} ${initiative.year}`
-              : 'Not scheduled'}
-          </div>
+          <div className="mt-1 text-xs text-gray-500">{scheduleLabel}</div>
         </div>
         <div className="inline-flex items-center gap-2">
           <button
