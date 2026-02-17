@@ -13,11 +13,13 @@ import {
   updateInitiative,
   deleteInitiative,
 } from '../../../shared/services/initiativeService'
+import { downloadAssessmentPdf } from '../../../shared/services/reportService'
 import AssessmentQuestions from './AssessmentQuestions'
 import CompletedSummary from './CompletedSummary'
 import InitiativeDrawer from '../../roadmap/InitiativeDrawer'
 import { mapInitiativeFromApi, mapInitiativeToApi } from '../../roadmap/initiativeMapper'
 import { useAppStore } from '../../../shared/store/useAppStore'
+import ToastMessage from '../../../shared/components/ToastMessage'
 
 const toArray = (value) => (Array.isArray(value) ? value : [])
 
@@ -186,6 +188,8 @@ const PerformAssessment = ({
     open: false,
     initiative: null,
   })
+  const [isDownloadingReport, setIsDownloadingReport] = useState(false)
+  const [toast, setToast] = useState(null)
 
   useEffect(() => {
     let isMounted = true
@@ -279,6 +283,14 @@ const PerformAssessment = ({
       isMounted = false
     }
   }, [assessment?.organizationId, activeOrganizationId])
+
+  useEffect(() => {
+    if (!toast) {
+      return
+    }
+    const timer = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(timer)
+  }, [toast])
 
   const categories = useMemo(() => assessment?.categories || [], [assessment])
   const years = useMemo(() => {
@@ -547,6 +559,29 @@ const PerformAssessment = ({
       setError('Unable to complete assessment')
     } finally {
       setIsCompleting(false)
+    }
+  }
+
+  const handleDownloadAssessmentReport = async () => {
+    if (!assessmentId) {
+      return
+    }
+    if (!isCompleted) {
+      setError('Complete the assessment before downloading the report')
+      return
+    }
+
+    setIsDownloadingReport(true)
+    setError('')
+    try {
+      await downloadAssessmentPdf(assessmentId)
+      setToast({ type: 'success', message: 'Assessment report download started.' })
+    } catch (downloadError) {
+      console.error('Unable to download assessment report:', downloadError)
+      setError('Unable to download report')
+      setToast({ type: 'error', message: 'Unable to download report' })
+    } finally {
+      setIsDownloadingReport(false)
     }
   }
 
@@ -829,9 +864,14 @@ const PerformAssessment = ({
                   : 'Complete assessment'}
               </button>
             )}
-            <button className="px-4 py-2 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-2 text-sm font-medium">
+            <button
+              type="button"
+              onClick={handleDownloadAssessmentReport}
+              disabled={!isCompleted || isDownloadingReport}
+              className="px-4 py-2 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+            >
               <FiDownload className="text-base" />
-              Download report
+              {isDownloadingReport ? 'Downloading...' : 'Download report'}
             </button>
             {onBack && (
               <button
@@ -1040,6 +1080,7 @@ const PerformAssessment = ({
         onDelete={handleDeleteInitiativeFromAssessment}
         onLinkedAssessmentClick={handleLinkedAssessmentClick}
       />
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   )
 }

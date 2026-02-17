@@ -25,8 +25,10 @@ import {
   linkSubcategories,
   updateInitiative,
 } from '../../shared/services/initiativeService'
+import { downloadInitiativesRoadmapPdf } from '../../shared/services/reportService'
 import { mapInitiativeFromApi, mapInitiativeToApi } from './initiativeMapper'
 import { useAppStore } from '../../shared/store/useAppStore'
+import ToastMessage from '../../shared/components/ToastMessage'
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
@@ -64,6 +66,15 @@ const isGoalNotFoundError = (error) => {
         : ''
 
   return Number(status) === 404 && /goal not found/i.test(detail)
+}
+
+const getQuarterOrderValue = (year, quarter) => {
+  const numericYear = Number(year)
+  const quarterIndex = QUARTERS.indexOf(quarter)
+  if (!Number.isFinite(numericYear) || quarterIndex < 0) {
+    return null
+  }
+  return numericYear * QUARTERS.length + quarterIndex
 }
 
 const Roadmap = () => {
@@ -121,6 +132,17 @@ const Roadmap = () => {
     poc: 'All',
     
   })
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
+  const [exportTenure, setExportTenure] = useState(() => ({
+    fromYear: currentYear,
+    fromQuarter: currentQuarter,
+    toYear: currentYear,
+    toQuarter: currentQuarter,
+    includeUnscheduled: true,
+  }))
+  const [exportError, setExportError] = useState('')
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
+  const [toast, setToast] = useState(null)
   
   const [draggingId, setDraggingId] = useState(null)
   const topScrollRef = useRef(null)
@@ -225,6 +247,26 @@ const Roadmap = () => {
       presetQuarter: null,
     }
   })
+
+  const exportYearOptions = useMemo(() => {
+    const scheduledYears = initiatives
+      .map((item) => Number(item.year))
+      .filter((year) => Number.isFinite(year))
+    const minYear = Math.min(currentYear, ...(scheduledYears.length ? scheduledYears : [currentYear]))
+    const maxYear = Math.max(
+      currentYear + 4,
+      ...(scheduledYears.length ? scheduledYears : [currentYear + 4])
+    )
+    return Array.from({ length: maxYear - minYear + 1 }, (_, index) => minYear + index)
+  }, [currentYear, initiatives])
+
+  useEffect(() => {
+    if (!toast) {
+      return
+    }
+    const timer = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(timer)
+  }, [toast])
 
   const loadInitiatives = useCallback(async () => {
     const organizationId = Number(activeOrganizationId)
@@ -419,7 +461,7 @@ const Roadmap = () => {
     }))
 
     if (unscheduledInitiatives.length > 0) {
-      slots.push({ type: 'unscheduled', key: 'unscheduled' })
+      slots.unshift({ type: 'unscheduled', key: 'unscheduled' })
     }
 
     return slots
@@ -472,6 +514,33 @@ const Roadmap = () => {
       presetYear: null,
       presetQuarter: null,
     })
+  }
+
+  const handleOpenExportDialog = () => {
+    const firstSlot = windowSlots[0] || { year: currentYear, quarter: currentQuarter }
+    const lastSlot = windowSlots[windowSlots.length - 1] || firstSlot
+    setExportTenure({
+      fromYear: firstSlot.year,
+      fromQuarter: firstSlot.quarter,
+      toYear: lastSlot.year,
+      toQuarter: lastSlot.quarter,
+      includeUnscheduled: true,
+    })
+    setExportError('')
+    setIsExportingPdf(false)
+    setIsExportDialogOpen(true)
+  }
+
+  const handleCloseExportDialog = () => {
+    if (isExportingPdf) {
+      return
+    }
+    setIsExportDialogOpen(false)
+    setExportError('')
+  }
+
+  const handleExportTenureChange = (field, value) => {
+    setExportTenure((prev) => ({ ...prev, [field]: value }))
   }
 
   const handleOpenCreateForQuarter = (year, quarter) => {
@@ -1162,6 +1231,53 @@ const Roadmap = () => {
     })
   }
 
+  const handleDownloadTenurePdf = async () => {
+    const organizationId = Number(activeOrganizationId)
+    const fromYear = Number(exportTenure.fromYear)
+    const toYear = Number(exportTenure.toYear)
+    const fromQuarter = exportTenure.fromQuarter
+    const toQuarter = exportTenure.toQuarter
+    const fromOrder = getQuarterOrderValue(fromYear, fromQuarter)
+    const toOrder = getQuarterOrderValue(toYear, toQuarter)
+
+    if (!organizationId) {
+      setExportError('Select a client before exporting the roadmap.')
+      return
+    }
+
+    if (fromOrder === null || toOrder === null) {
+      setExportError('Select a valid tenure range.')
+      return
+    }
+
+    if (fromOrder > toOrder) {
+      setExportError('"From" tenure must be earlier than or equal to "To" tenure.')
+      return
+    }
+
+    setIsExportingPdf(true)
+    setExportError('')
+
+    try {
+      await downloadInitiativesRoadmapPdf({
+        organizationId,
+        fromYear,
+        fromQuarter,
+        toYear,
+        toQuarter,
+        includeUnscheduled: exportTenure.includeUnscheduled,
+      })
+      setIsExportDialogOpen(false)
+      setToast({ type: 'success', message: 'Roadmap PDF download started.' })
+    } catch (error) {
+      const message = formatApiError(error, 'Unable to download roadmap PDF')
+      setExportError(message)
+      setToast({ type: 'error', message })
+    } finally {
+      setIsExportingPdf(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1213,7 +1329,7 @@ const Roadmap = () => {
           <button
             type="button"
             className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            onClick={() => window.print()}
+            onClick={handleOpenExportDialog}
           >
             <FiDownload /> Export
           </button>
@@ -1487,6 +1603,125 @@ const Roadmap = () => {
           onLinkedAssessmentClick={handleLinkedAssessmentClick}
         />
       )}
+
+      {isExportDialogOpen && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-xl border border-gray-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Select Tenure</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Choose year and quarter range for PDF export.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseExportDialog}
+                className="rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-600 hover:bg-gray-50"
+                aria-label="Close export dialog"
+                disabled={isExportingPdf}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid gap-4 px-5 py-5 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700">From Year</label>
+                <select
+                  value={exportTenure.fromYear}
+                  onChange={(event) => handleExportTenureChange('fromYear', Number(event.target.value))}
+                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700"
+                >
+                  {exportYearOptions.map((year) => (
+                    <option key={`from-year-${year}`} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700">From Quarter</label>
+                <select
+                  value={exportTenure.fromQuarter}
+                  onChange={(event) => handleExportTenureChange('fromQuarter', event.target.value)}
+                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700"
+                >
+                  {QUARTERS.map((quarter) => (
+                    <option key={`from-quarter-${quarter}`} value={quarter}>
+                      {quarter}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700">To Year</label>
+                <select
+                  value={exportTenure.toYear}
+                  onChange={(event) => handleExportTenureChange('toYear', Number(event.target.value))}
+                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700"
+                >
+                  {exportYearOptions.map((year) => (
+                    <option key={`to-year-${year}`} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700">To Quarter</label>
+                <select
+                  value={exportTenure.toQuarter}
+                  onChange={(event) => handleExportTenureChange('toQuarter', event.target.value)}
+                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700"
+                >
+                  {QUARTERS.map((quarter) => (
+                    <option key={`to-quarter-${quarter}`} value={quarter}>
+                      {quarter}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700 md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={Boolean(exportTenure.includeUnscheduled)}
+                  onChange={(event) =>
+                    handleExportTenureChange('includeUnscheduled', event.target.checked)
+                  }
+                  className="h-4 w-4 rounded border-gray-300 text-[rgb(5,117,204)] focus:ring-[rgb(5,117,204)]"
+                />
+                Include not scheduled initiatives
+              </label>
+            </div>
+
+            {exportError && (
+              <div className="px-5 pb-2 text-sm text-red-600">{exportError}</div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={handleCloseExportDialog}
+                className="rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                disabled={isExportingPdf}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadTenurePdf}
+                disabled={isExportingPdf}
+                className="inline-flex items-center gap-2 rounded-md bg-[rgb(5,117,204)] px-4 py-2 text-sm font-medium text-white hover:bg-[rgb(0,97,170)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <FiDownload />
+                {isExportingPdf ? 'Downloading...' : 'Download PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   )
 }

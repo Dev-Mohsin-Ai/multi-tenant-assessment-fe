@@ -4,6 +4,7 @@ import {
   FiFlag,
   FiCalendar,
   FiExternalLink,
+  FiDownload,
   FiTarget,
   FiUser,
   FiFileText,
@@ -22,7 +23,9 @@ import {
   getQuarterStartDate,
 } from './initiativeConstants'
 import { getGoals } from '../../shared/services/goalService'
+import { downloadInitiativePdf } from '../../shared/services/reportService'
 import { useAppStore } from '../../shared/store/useAppStore'
+import ToastMessage from '../../shared/components/ToastMessage'
 
 const InitiativeDrawer = ({
   open = true,
@@ -38,6 +41,14 @@ const InitiativeDrawer = ({
 }) => {
   const navigate = useNavigate()
   const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
+  const formatDownloadError = (error) => {
+    const status = error?.response?.status
+    const detail =
+      typeof error?.response?.data?.detail === 'string'
+        ? error.response.data.detail
+        : ''
+    return `Unable to download initiative report${status ? ` (HTTP ${status})` : ''}${detail ? `: ${detail}` : ''}`
+  }
   const getResponseBadge = (label) => {
     const normalized = String(label || '').toLowerCase()
     if (normalized.includes('at risk')) {
@@ -116,6 +127,8 @@ const InitiativeDrawer = ({
   const [availableGoals, setAvailableGoals] = useState([])
   const [loadingGoals, setLoadingGoals] = useState(false)
   const [goalError, setGoalError] = useState('')
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
+  const [toast, setToast] = useState(null)
   const [showGoalInitiativeLinks] = useState(false)
   const loadingGoalInitiatives = false
   const goalInitiatives = []
@@ -163,6 +176,22 @@ const InitiativeDrawer = ({
     }
   }, [activeOrganizationId, open])
 
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    setIsDownloadingPdf(false)
+    setToast(null)
+  }, [form.id, open])
+
+  useEffect(() => {
+    if (!toast) {
+      return
+    }
+    const timer = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(timer)
+  }, [toast])
+
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
@@ -206,6 +235,22 @@ const InitiativeDrawer = ({
       quarter: resolvedQuarter || form.quarter,
       isScheduled: Boolean(form.isScheduled && resolvedQuarter),
     })
+  }
+
+  const handleDownloadPdf = async () => {
+    if (mode !== 'edit' || !form?.id) {
+      return
+    }
+    setIsDownloadingPdf(true)
+    setToast(null)
+    try {
+      await downloadInitiativePdf(form.id)
+      setToast({ type: 'success', message: 'Initiative report download started.' })
+    } catch (error) {
+      setToast({ type: 'error', message: formatDownloadError(error) })
+    } finally {
+      setIsDownloadingPdf(false)
+    }
   }
 
   const totalOneTime = form.oneTimeFees.reduce(
@@ -787,6 +832,17 @@ const InitiativeDrawer = ({
             {mode === 'edit' && (
               <button
                 type="button"
+                onClick={handleDownloadPdf}
+                disabled={isDownloadingPdf}
+                className="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <FiDownload />
+                {isDownloadingPdf ? 'Downloading...' : 'Download PDF'}
+              </button>
+            )}
+            {mode === 'edit' && (
+              <button
+                type="button"
                 onClick={() => onDelete(form.id)}
                 className="rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
               >
@@ -808,6 +864,7 @@ const InitiativeDrawer = ({
             </button>
           </div>
         </div>
+        <ToastMessage toast={toast} onClose={() => setToast(null)} />
       </form>
     </div>
   )
