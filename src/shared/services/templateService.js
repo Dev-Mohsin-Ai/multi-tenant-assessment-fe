@@ -1,7 +1,7 @@
 import { api } from "./api";
 
-export async function getTemplates() {
-    const response = await api.get("/templates/");
+export async function getTemplates(params = {}) {
+    const response = await api.get("/templates/", { params });
     return response.data;
 }
 

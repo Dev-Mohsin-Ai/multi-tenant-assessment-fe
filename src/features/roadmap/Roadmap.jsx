@@ -710,9 +710,11 @@ const Roadmap = () => {
         }
       }
       if (pendingLink) {
+        const pendingResponseKey = pendingLink.responseId || pendingLink.subcategoryId
         const linkEntry = {
           assessmentId: pendingLink.assessmentId,
-          responseId: pendingLink.responseId,
+          responseId: pendingResponseKey,
+          subcategoryId: pendingLink.subcategoryId || pendingResponseKey,
           title: pendingLink.title,
           responseLabel: pendingLink.responseLabel,
           categoryTitle: pendingLink.categoryTitle,
@@ -729,7 +731,9 @@ const Roadmap = () => {
         const linksRaw = localStorage.getItem(INITIATIVE_LINKS_KEY)
         const links = linksRaw ? JSON.parse(linksRaw) : {}
         const assessmentLinks = links[pendingLink.assessmentId] || {}
-        assessmentLinks[pendingLink.responseId] = mapped.id
+        if (pendingResponseKey) {
+          assessmentLinks[pendingResponseKey] = mapped.id
+        }
         links[pendingLink.assessmentId] = assessmentLinks
         localStorage.setItem(INITIATIVE_LINKS_KEY, JSON.stringify(links))
         localStorage.removeItem(PENDING_LINK_KEY)

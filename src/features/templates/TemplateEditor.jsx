@@ -16,6 +16,7 @@ const TemplateEditor = (props) => {
     setFormData,
     selectedTemplateId,
     saving,
+    autoSaveStatus,
     deleting,
     handleSave,
     handleDeleteConfirm,
@@ -76,6 +77,9 @@ const TemplateEditor = (props) => {
               </button>
             )}
           </div>
+          {autoSaveStatus && (
+            <p className="w-full text-right text-xs text-gray-500">{autoSaveStatus}</p>
+          )}
         </div>
 
         <div

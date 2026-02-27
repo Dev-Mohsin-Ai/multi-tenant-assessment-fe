@@ -318,14 +318,52 @@ const Goals = () => {
     return new Set((goal?.initiatives || []).map((initiative) => String(initiative.id)))
   }, [dialogState.goalId, goals])
 
+  const initiativeOwnerGoalById = useMemo(() => {
+    const map = new Map()
+    goals.forEach((goal) => {
+      const initiatives = Array.isArray(goal?.initiatives) ? goal.initiatives : []
+      initiatives.forEach((initiative) => {
+        const key = String(initiative?.id || '')
+        if (!key || map.has(key)) {
+          return
+        }
+        map.set(key, goal.id)
+      })
+    })
+    return map
+  }, [goals])
+
   const dialogAvailableInitiatives = useMemo(() => {
-    if (dialogLinkedInitiativeIds.size === 0) {
-      return availableInitiatives
-    }
-    return availableInitiatives.filter(
-      (initiative) => !dialogLinkedInitiativeIds.has(String(initiative.id))
-    )
-  }, [availableInitiatives, dialogLinkedInitiativeIds])
+    return availableInitiatives.filter((initiative) => {
+      const initiativeId = String(initiative?.id || '')
+      if (!initiativeId) {
+        return false
+      }
+
+      // Never show initiatives already linked to this goal in the picker.
+      if (dialogLinkedInitiativeIds.has(initiativeId)) {
+        return false
+      }
+
+      // Enforce single-goal ownership: initiative must be unlinked or belong to current goal.
+      const currentGoalId = dialogState.goalId
+      const ownerGoalId =
+        initiativeOwnerGoalById.get(initiativeId) ?? initiative?.goalId ?? null
+
+      if (ownerGoalId === null || ownerGoalId === undefined) {
+        return true
+      }
+      if (currentGoalId === null || currentGoalId === undefined) {
+        return false
+      }
+      return String(ownerGoalId) === String(currentGoalId)
+    })
+  }, [
+    availableInitiatives,
+    dialogLinkedInitiativeIds,
+    dialogState.goalId,
+    initiativeOwnerGoalById,
+  ])
 
   const handleToggleExpandAll = () => {
     setExpandedIds((prev) => {
@@ -469,9 +507,12 @@ const Goals = () => {
 
       try {
         const detailed = await getInitiativeById(initiativeId)
+        const fallbackLinkedItems = Array.isArray(fallback?.linkedItems)
+          ? fallback.linkedItems
+          : []
         const mapped = mapInitiativeFromApi(detailed, {
-          linkedItemsById: fallback?.linkedItems
-            ? { [initiativeId]: fallback.linkedItems }
+          linkedItemsById: fallbackLinkedItems.length > 0
+            ? { [initiativeId]: fallbackLinkedItems }
             : undefined,
         })
         setInitiativeDrawerState({ open: true, mode: 'edit', initiative: mapped })
@@ -585,6 +626,18 @@ const Goals = () => {
     [handleCloseInitiativeDrawer]
   )
 
+  const handleLinkedAssessmentClick = useCallback(
+    (item) => {
+      if (!item?.assessmentId) {
+        return
+      }
+      navigate(`/assessments/${item.assessmentId}/read-only`, {
+        state: { responseId: item.responseId, backTo: '/goals' },
+      })
+    },
+    [navigate]
+  )
+
   const handleOpenNewGoal = () => {
     openGoalDialog({
       context: 'create',
@@ -680,12 +733,20 @@ const Goals = () => {
         const selectedIds = Array.isArray(dialogState.existingInitiativeIds)
           ? dialogState.existingInitiativeIds.map((id) => String(id)).filter(Boolean)
           : []
-        if (selectedIds.length === 0) {
+        const isCreateWithoutInitiatives =
+          dialogState.context === 'create' && selectedIds.length === 0
+        if (selectedIds.length === 0 && !isCreateWithoutInitiatives) {
           setDialogState((prev) => ({
             ...prev,
             saving: false,
             error: 'Select one or more initiatives to continue.',
           }))
+          return
+        }
+
+        if (isCreateWithoutInitiatives) {
+          closeGoalDialog()
+          setExpandedIds((prev) => new Set([...prev, goalId]))
           return
         }
 
@@ -705,6 +766,25 @@ const Goals = () => {
           return
         }
 
+        const linkedElsewhere = selectedInitiatives.filter((initiative) => {
+          const initiativeId = String(initiative?.id || '')
+          const ownerGoalId =
+            initiativeOwnerGoalById.get(initiativeId) ?? initiative?.goalId ?? null
+          if (ownerGoalId === null || ownerGoalId === undefined) {
+            return false
+          }
+          return String(ownerGoalId) !== String(goalId)
+        })
+
+        if (linkedElsewhere.length > 0) {
+          setDialogState((prev) => ({
+            ...prev,
+            saving: false,
+            error: 'Selected initiative is already linked to another goal.',
+          }))
+          return
+        }
+
         const updatedInitiatives = await Promise.all(
           selectedInitiatives.map(async (initiative) => {
             const mappedPayload = mapInitiativeToApi(initiative, organizationId, { goalId })
@@ -719,6 +799,11 @@ const Goals = () => {
       } else {
         const initiativeTitle = dialogState.newInitiativeTitle.trim()
         if (!initiativeTitle) {
+          if (dialogState.context === 'create') {
+            closeGoalDialog()
+            setExpandedIds((prev) => new Set([...prev, goalId]))
+            return
+          }
           setDialogState((prev) => ({
             ...prev,
             saving: false,
@@ -1397,7 +1482,7 @@ const Goals = () => {
 
       {initiativeDrawerState.open && (
         <InitiativeDrawer
-          key={`goal-initiative-${initiativeDrawerState.initiative?.id ?? 'unknown'}`}
+          key={`${initiativeDrawerState.mode}-${initiativeDrawerState.initiative?.id ?? 'new'}-na-na`}
           open={initiativeDrawerState.open}
           mode={initiativeDrawerState.mode}
           years={years}
@@ -1407,6 +1492,8 @@ const Goals = () => {
           onClose={handleCloseInitiativeDrawer}
           onSave={handleSaveInitiativeFromDrawer}
           onDelete={handleDeleteInitiativeFromDrawer}
+          onLinkedAssessmentClick={handleLinkedAssessmentClick}
+          linkedAssessmentId={null}
         />
       )}
 

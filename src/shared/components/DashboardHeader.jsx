@@ -16,12 +16,14 @@ const DashboardHeader = () => {
     <div className="fixed top-0 left-0 right-0 z-20 w-full bg-[rgb(12,19,34)] text-white border-b border-b-white/10 px-4 py-1 shadow-sm">
       {/* Mobile-only row */}
       <div className="flex items-center justify-between md:hidden h-12">
-        <div className="flex items-center gap-2">
-          <img
-            src={HeaderLogo}
-            alt="Atlas"
-            className="h-6 w-6 cursor-pointer"
-          />
+        <div className="flex items-center gap-1.5">
+          <div className="h-16 w-16">
+            <img
+              src={HeaderLogo}
+              alt="Atlas"
+              className="h-full w-full cursor-pointer object-contain"
+            />
+          </div>
           <h1
             onClick={() => navigate('/clients/select')}
             className="text-lg font-semibold cursor-pointer whitespace-nowrap tracking-wide"
@@ -40,12 +42,14 @@ const DashboardHeader = () => {
 
       {/* Desktop row (original layout) */}
       <div className="hidden md:flex justify-between items-center h-12">
-        <div className="flex items-center gap-2 flex-wrap">
-          <img
-            src={HeaderLogo}
-            alt="Atlas"
-            className="h-6 w-6 cursor-pointer"
-          />
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="h-9 w-9 shrink-0">
+            <img
+              src={HeaderLogo}
+              alt="Atlas"
+              className="h-full w-full cursor-pointer object-contain"
+            />
+          </div>
 
           <h1
             onClick={() => navigate('/clients/select')}

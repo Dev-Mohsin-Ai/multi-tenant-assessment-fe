@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   FiX,
   FiFlag,
@@ -23,9 +23,360 @@ import {
   getQuarterStartDate,
 } from './initiativeConstants'
 import { getGoals } from '../../shared/services/goalService'
+import { getInitiativeById } from '../../shared/services/initiativeService'
+import { getAssessmentById } from '../../shared/services/assessmentService'
 import { downloadInitiativePdf } from '../../shared/services/reportService'
 import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
+
+const INITIATIVE_LINKS_KEY = 'initiativeLinks'
+
+const formatResponseTypeLabel = (value) =>
+  String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+
+const toArray = (value) => (Array.isArray(value) ? value : [])
+
+const cleanLinkedText = (value) =>
+  String(value ?? '')
+    .replace(/\s*\(Copy\)\s*/gi, ' ')
+    .trim()
+
+const isNumericLike = (value) => /^-?\d+(\.\d+)?$/.test(String(value || '').trim())
+
+const isPlaceholderLinkedTitle = (value) => {
+  const normalized = cleanLinkedText(value)
+  if (!normalized) {
+    return true
+  }
+  return (
+    /^untitled subcategory$/i.test(normalized) ||
+    /^sub\s*category\s*\d+$/i.test(normalized) ||
+    /^subcategory\s*\d+$/i.test(normalized) ||
+    /^question\s*\d+$/i.test(normalized)
+  )
+}
+
+const normalizeResponseLabel = (value) => {
+  const normalized = cleanLinkedText(value)
+  if (!normalized || isNumericLike(normalized)) {
+    return ''
+  }
+  if (/^[a-z_]+$/.test(normalized)) {
+    return formatResponseTypeLabel(normalized)
+  }
+  return normalized
+}
+
+const resolveLinkedSubcategoryId = (sub = {}) =>
+  sub.subcategory_id ??
+  sub.subcategoryId ??
+  sub.subcategory?.id ??
+  sub.sub_category?.id ??
+  sub.template_subcategory_id ??
+  sub.templateSubcategoryId ??
+  sub.template_subcategory?.id ??
+  sub.templateSubcategory?.id ??
+  sub.response_subcategory_id ??
+  sub.responseSubcategoryId ??
+  sub.response?.subcategory_id ??
+  sub.response?.subcategoryId ??
+  sub.response?.subcategory?.id ??
+  sub.response_id ??
+  sub.responseId ??
+  sub.response?.id ??
+  sub.id
+
+const isMeaningfulLinkedItem = (item) => {
+  const title = cleanLinkedText(item?.title)
+  const categoryTitle = cleanLinkedText(item?.categoryTitle)
+  const responseLabel = normalizeResponseLabel(item?.responseLabel)
+  const hasOnlyUnknownLabel =
+    !title && !categoryTitle && /^unknown$/i.test(responseLabel)
+  return Boolean(title || categoryTitle || (responseLabel && !hasOnlyUnknownLabel))
+}
+
+const getLinkedItemKey = (item, fallbackKey = '') => {
+  const primary = item?.responseId ?? item?.subcategoryId ?? item?.id
+  if (primary !== null && primary !== undefined && String(primary).trim()) {
+    return String(primary)
+  }
+  return fallbackKey
+}
+
+const mergeLinkedItem = (existing = {}, candidate = {}) => {
+  const existingTitle = cleanLinkedText(existing.title)
+  const candidateTitle = cleanLinkedText(candidate.title)
+  const existingCategory = cleanLinkedText(existing.categoryTitle)
+  const candidateCategory = cleanLinkedText(candidate.categoryTitle)
+  const existingResponseLabel = normalizeResponseLabel(existing.responseLabel)
+  const candidateResponseLabel = normalizeResponseLabel(candidate.responseLabel)
+
+  return {
+    ...existing,
+    ...candidate,
+    assessmentId: existing.assessmentId || candidate.assessmentId || null,
+    responseId: existing.responseId || candidate.responseId || existing.subcategoryId || candidate.subcategoryId,
+    subcategoryId:
+      existing.subcategoryId || candidate.subcategoryId || existing.responseId || candidate.responseId,
+    title:
+      existingTitle && !isPlaceholderLinkedTitle(existingTitle)
+        ? existingTitle
+        : candidateTitle,
+    categoryTitle: existingCategory || candidateCategory,
+    description: cleanLinkedText(existing.description) || cleanLinkedText(candidate.description),
+    responseLabel: existingResponseLabel || candidateResponseLabel,
+  }
+}
+
+const mapLinkedSubcategoriesToItems = (initiativeData) => {
+  const linked = Array.isArray(initiativeData?.linked_subcategories)
+    ? initiativeData.linked_subcategories
+    : []
+
+  return linked.map((sub) => {
+    if (!sub || typeof sub !== 'object') {
+      const responseId =
+        sub !== null && sub !== undefined && String(sub).trim() ? sub : null
+      return {
+        assessmentId: null,
+        responseId,
+        subcategoryId: responseId,
+        title: '',
+        categoryTitle: '',
+        description: '',
+        responseLabel: '',
+      }
+    }
+
+    const responseId = resolveLinkedSubcategoryId(sub)
+
+    const responseLabelCandidates = [
+      sub.response_label,
+      sub.responseLabel,
+      sub.selected_response_label,
+      sub.selectedResponseLabel,
+      sub.selected_response?.label,
+      sub.selectedResponse?.label,
+      sub.response?.label,
+      sub.response?.title,
+      sub.selected_response_type ? formatResponseTypeLabel(sub.selected_response_type) : '',
+      sub.selectedResponseType ? formatResponseTypeLabel(sub.selectedResponseType) : '',
+      sub.selected_response?.response_type
+        ? formatResponseTypeLabel(sub.selected_response.response_type)
+        : '',
+      sub.response_type ? formatResponseTypeLabel(sub.response_type) : '',
+    ]
+
+    const responseLabel =
+      responseLabelCandidates.map((value) => normalizeResponseLabel(value)).find(Boolean) || ''
+
+    return {
+      assessmentId:
+        sub.assessment_id ??
+        sub.assessmentId ??
+        sub.assessment?.id ??
+        sub.assessment?.assessment_id ??
+        null,
+      responseId,
+      subcategoryId: responseId,
+      title: cleanLinkedText(
+        sub.subcategory_title ||
+          sub.subcategoryTitle ||
+          sub.subcategory?.title ||
+          sub.response?.subcategory?.title ||
+          sub.title ||
+          sub.name ||
+          sub.question ||
+          sub.label ||
+          ''
+      ),
+      categoryTitle: cleanLinkedText(
+        sub.category_title ||
+          sub.categoryTitle ||
+          sub.category_name ||
+          sub.categoryName ||
+          sub.subcategory?.category?.title ||
+          sub.subcategory?.category?.name ||
+          sub.response?.subcategory?.category?.title ||
+          sub.response?.subcategory?.category?.name ||
+          sub.category?.title ||
+          sub.category?.name ||
+          ''
+      ),
+      description: cleanLinkedText(sub.description || ''),
+      responseLabel,
+    }
+  })
+}
+
+const getLinkedResponsesFromStorage = (initiativeId, assessmentScopeId = null) => {
+  if (!initiativeId) {
+    return []
+  }
+  const scopeKey =
+    assessmentScopeId === null || assessmentScopeId === undefined
+      ? null
+      : String(assessmentScopeId)
+  try {
+    const stored = JSON.parse(localStorage.getItem(INITIATIVE_LINKS_KEY) || '{}')
+    return Object.entries(stored).flatMap(([assessmentId, links]) =>
+      scopeKey !== null && String(assessmentId) !== scopeKey
+        ? []
+        : Object.entries(links || {})
+            .filter(
+              ([, linkedInitiativeId]) => String(linkedInitiativeId) === String(initiativeId)
+            )
+            .map(([responseId]) => ({ assessmentId, responseId }))
+    )
+  } catch {
+    return []
+  }
+}
+
+const shouldKeepByAssessmentScope = (
+  item,
+  assessmentScopeId = null,
+  scopedResponseKeys = null
+) => {
+  if (assessmentScopeId === null || assessmentScopeId === undefined) {
+    return true
+  }
+  const responseKey = getLinkedItemKey(item)
+  if (!responseKey) {
+    return false
+  }
+  if (scopedResponseKeys && !scopedResponseKeys.has(responseKey)) {
+    return false
+  }
+  if (!item?.assessmentId) {
+    return true
+  }
+  return String(item.assessmentId) === String(assessmentScopeId)
+}
+
+const getAssessmentResponseMap = (data) => {
+  const assessment = data?.assessment || data
+  const categories = toArray(
+    assessment?.categories ||
+      assessment?.template?.categories ||
+      assessment?.template_categories ||
+      assessment?.templateCategories
+  )
+  const result = new Map()
+
+  categories.forEach((category) => {
+    const categoryTitle =
+      category?.title || category?.name || category?.label || ''
+    const subcategories = toArray(
+      category?.subcategories ||
+        category?.sub_categories ||
+        category?.items ||
+        category?.questions ||
+        category?.subcategory
+    )
+
+    subcategories.forEach((subcategory) => {
+      const responseId = subcategory?.id
+      if (!responseId) {
+        return
+      }
+      const rawOptions = toArray(
+        subcategory?.response_options ||
+          subcategory?.responseOptions ||
+          subcategory?.responses ||
+          subcategory?.options
+      )
+      const selectedResponseId =
+        subcategory?.selected_response_id ||
+        subcategory?.selectedResponseId ||
+        subcategory?.selected_response?.id ||
+        subcategory?.selectedResponse?.id ||
+        null
+
+      const selectedOption = rawOptions.find(
+        (option) =>
+          String(option?.id) === String(selectedResponseId) ||
+          String(option?.response_id) === String(selectedResponseId)
+      )
+
+      const selectedLabel = normalizeResponseLabel(
+        subcategory?.selected_response?.label ||
+          subcategory?.selectedResponse?.label ||
+          (subcategory?.selected_response?.response_type
+            ? formatResponseTypeLabel(subcategory.selected_response.response_type)
+            : '') ||
+          (selectedOption?.label ||
+            selectedOption?.title ||
+            selectedOption?.name ||
+            (selectedOption?.response_type
+              ? formatResponseTypeLabel(selectedOption.response_type)
+              : '')) ||
+          ''
+      )
+
+      const title = cleanLinkedText(
+        subcategory?.title ||
+          subcategory?.subcategory_title ||
+          subcategory?.subcategoryTitle ||
+          subcategory?.sub_category_title ||
+          subcategory?.subCategoryTitle ||
+          subcategory?.question_title ||
+          subcategory?.questionTitle ||
+          subcategory?.question_text ||
+          subcategory?.questionText ||
+          subcategory?.template_subcategory?.title ||
+          subcategory?.templateSubcategory?.title ||
+          subcategory?.template_sub_category?.title ||
+          subcategory?.templateSubCategory?.title ||
+          subcategory?.template_question?.title ||
+          subcategory?.templateQuestion?.title ||
+          subcategory?.name ||
+          subcategory?.question ||
+          subcategory?.label ||
+          ''
+      )
+
+      const setMatch = (key, responseLabelOverride = '') => {
+        if (key === null || key === undefined || String(key).trim() === '') {
+          return
+        }
+        const existing = result.get(String(key))
+        result.set(String(key), {
+          title: title || existing?.title || '',
+          categoryTitle: categoryTitle || existing?.categoryTitle || '',
+          responseLabel:
+            normalizeResponseLabel(responseLabelOverride) ||
+            selectedLabel ||
+            existing?.responseLabel ||
+            '',
+        })
+      }
+
+      setMatch(responseId)
+      setMatch(
+        subcategory?.selected_response_id ??
+          subcategory?.selectedResponseId ??
+          subcategory?.selected_response?.id ??
+          subcategory?.selectedResponse?.id
+      )
+
+      rawOptions.forEach((option) => {
+        const optionId = option?.id ?? option?.response_id
+        const optionLabel = normalizeResponseLabel(
+          option?.label ||
+            option?.title ||
+            option?.name ||
+            (option?.response_type ? formatResponseTypeLabel(option.response_type) : '')
+        )
+        setMatch(optionId, optionLabel)
+      })
+    })
+  })
+
+  return result
+}
 
 const InitiativeDrawer = ({
   open = true,
@@ -37,7 +388,8 @@ const InitiativeDrawer = ({
   years,
   presetYear,
   presetQuarter,
-  onLinkedAssessmentClick = () => {},
+  onLinkedAssessmentClick = null,
+  linkedAssessmentId = null,
 }) => {
   const navigate = useNavigate()
   const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
@@ -50,27 +402,30 @@ const InitiativeDrawer = ({
     return `Unable to download initiative report${status ? ` (HTTP ${status})` : ''}${detail ? `: ${detail}` : ''}`
   }
   const getResponseBadge = (label) => {
-    const normalized = String(label || '').toLowerCase()
-    if (normalized.includes('at risk')) {
-      return 'bg-red-100 text-red-800 border-red-200'
+    const normalized = String(label || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+    if (normalized.includes('at_risk')) {
+      return 'bg-red-100 text-red-700 border-red-200'
     }
-    if (normalized.includes('needs attention')) {
-      return 'bg-orange-100 text-orange-800 border-orange-200'
+    if (normalized.includes('needs_attention')) {
+      return 'bg-orange-100 text-orange-700 border-orange-200'
     }
     if (normalized.includes('acceptable')) {
-      return 'bg-amber-100 text-amber-800 border-amber-200'
+      return 'bg-blue-100 text-blue-700 border-blue-200'
     }
     if (normalized.includes('satisfactory') || normalized === 'yes') {
-      return 'bg-green-100 text-green-800 border-green-200'
+      return 'bg-green-100 text-green-700 border-green-200'
     }
     if (normalized === 'no') {
-      return 'bg-red-100 text-red-800 border-red-200'
+      return 'bg-red-100 text-red-700 border-red-200'
     }
     if (normalized.includes('unknown')) {
       return 'bg-gray-100 text-gray-700 border-gray-200'
     }
-    if (normalized.includes('not applicable')) {
-      return 'bg-purple-100 text-purple-800 border-purple-200'
+    if (normalized.includes('not_applicable')) {
+      return 'bg-purple-100 text-purple-700 border-purple-200'
     }
     return 'bg-gray-50 text-gray-600 border-gray-200'
   }
@@ -133,6 +488,7 @@ const InitiativeDrawer = ({
   const loadingGoalInitiatives = false
   const goalInitiatives = []
   const handleOpenInitiativeOnRoadmap = () => {}
+  const linkedItemsRef = useRef([])
 
   useEffect(() => {
     const organizationId = Number(activeOrganizationId)
@@ -192,6 +548,188 @@ const InitiativeDrawer = ({
     return () => clearTimeout(timer)
   }, [toast])
 
+  useEffect(() => {
+    linkedItemsRef.current = Array.isArray(form.linkedItems) ? form.linkedItems : []
+  }, [form.linkedItems])
+
+  useEffect(() => {
+    if (!open || mode !== 'edit' || !form?.id) {
+      return
+    }
+
+    let isActive = true
+
+    const hydrateLinkedAssessments = async () => {
+      try {
+        const data = await getInitiativeById(form.id)
+        if (!isActive) {
+          return
+        }
+
+        const initiativeData = data?.initiative || data
+        const apiLinkedItems = mapLinkedSubcategoriesToItems(initiativeData)
+        const storedLinks = getLinkedResponsesFromStorage(form.id, linkedAssessmentId)
+        const currentLinkedItems = linkedItemsRef.current
+        const assessmentScopeKey =
+          linkedAssessmentId === null || linkedAssessmentId === undefined
+            ? null
+            : String(linkedAssessmentId)
+
+        const scopedResponseKeys =
+          assessmentScopeKey === null
+            ? null
+            : new Set([
+                ...storedLinks.map((link) => String(link.responseId)),
+                ...currentLinkedItems
+                  .filter(
+                    (item) =>
+                      item?.assessmentId &&
+                      String(item.assessmentId) === assessmentScopeKey
+                  )
+                  .map((item) => getLinkedItemKey(item))
+                  .filter(Boolean),
+              ])
+
+        const knownResponseKeys = new Set()
+        const itemsByKey = new Map()
+
+        currentLinkedItems.forEach((item, index) => {
+          const responseKey = getLinkedItemKey(item)
+          const key = responseKey || `current-${index}`
+          if (key) {
+            itemsByKey.set(key, mergeLinkedItem({}, item))
+            if (responseKey) {
+              knownResponseKeys.add(responseKey)
+            }
+          }
+        })
+
+        apiLinkedItems.forEach((item, index) => {
+          const responseKey = getLinkedItemKey(item)
+          const key = responseKey || `api-${index}`
+          if (!key) {
+            return
+          }
+          itemsByKey.set(key, mergeLinkedItem(itemsByKey.get(key), item))
+          if (responseKey) {
+            knownResponseKeys.add(responseKey)
+          }
+        })
+
+        const scopedStoredLinksByKnownKey =
+          knownResponseKeys.size > 0
+            ? storedLinks.filter((link) => knownResponseKeys.has(String(link.responseId)))
+            : storedLinks
+        const effectiveStoredLinks =
+          scopedStoredLinksByKnownKey.length > 0 ? scopedStoredLinksByKnownKey : storedLinks
+
+        effectiveStoredLinks.forEach((link) => {
+          const key = String(link.responseId)
+          if (!key) {
+            return
+          }
+          itemsByKey.set(
+            key,
+            mergeLinkedItem(itemsByKey.get(key), {
+              assessmentId: link.assessmentId,
+              responseId: link.responseId,
+              subcategoryId: link.responseId,
+            })
+          )
+        })
+
+        const assessmentIds = Array.from(
+          new Set(
+            Array.from(itemsByKey.values())
+              .map((item) => item.assessmentId)
+              .filter(Boolean)
+              .map(String)
+          )
+        )
+
+        const assessmentResponseMaps = new Map()
+        await Promise.all(
+          assessmentIds.map(async (assessmentId) => {
+            try {
+              const assessmentData = await getAssessmentById(assessmentId)
+              assessmentResponseMaps.set(
+                String(assessmentId),
+                getAssessmentResponseMap(assessmentData)
+              )
+            } catch {
+              assessmentResponseMaps.set(String(assessmentId), new Map())
+            }
+          })
+        )
+
+        const nextLinkedItems = Array.from(itemsByKey.values())
+          .map((item) => {
+            const responseKey = String(item.responseId || item.subcategoryId || '')
+            const assessmentMap = assessmentResponseMaps.get(String(item.assessmentId))
+            const assessmentMatch = assessmentMap?.get(responseKey)
+            if (!assessmentMatch) {
+              return mergeLinkedItem({}, item)
+            }
+            return {
+              ...mergeLinkedItem(item, assessmentMatch),
+              title: cleanLinkedText(assessmentMatch.title) || cleanLinkedText(item.title),
+              categoryTitle:
+                cleanLinkedText(assessmentMatch.categoryTitle) ||
+                cleanLinkedText(item.categoryTitle),
+              responseLabel:
+                normalizeResponseLabel(assessmentMatch.responseLabel) ||
+                normalizeResponseLabel(item.responseLabel),
+            }
+          })
+          .filter((item) =>
+            shouldKeepByAssessmentScope(item, linkedAssessmentId, scopedResponseKeys)
+          )
+
+        const fallbackScopedItems = currentLinkedItems.filter((item) =>
+          shouldKeepByAssessmentScope(item, linkedAssessmentId, scopedResponseKeys)
+        )
+        const resolvedLinkedItems =
+          nextLinkedItems.length === 0 && fallbackScopedItems.length > 0
+            ? fallbackScopedItems
+            : nextLinkedItems
+
+        const hasMeaningfulRows = resolvedLinkedItems.some((item) =>
+          isMeaningfulLinkedItem(item)
+        )
+        const sanitizedLinkedItems = hasMeaningfulRows
+          ? resolvedLinkedItems.filter((item) => isMeaningfulLinkedItem(item))
+          : resolvedLinkedItems
+
+        const nextLinkedSubcategoryIds = Array.from(
+          new Set(
+            sanitizedLinkedItems
+              .map((item) => item.subcategoryId || item.responseId)
+              .filter(Boolean)
+          )
+        )
+
+        setForm((prev) => {
+          if (!isActive || String(prev.id) !== String(form.id)) {
+            return prev
+          }
+          return {
+            ...prev,
+            linkedItems: sanitizedLinkedItems,
+            linkedSubcategoryIds: nextLinkedSubcategoryIds,
+          }
+        })
+      } catch {
+        // keep existing linked items if enrichment fails
+      }
+    }
+
+    void hydrateLinkedAssessments()
+
+    return () => {
+      isActive = false
+    }
+  }, [form?.id, linkedAssessmentId, mode, open])
+
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
@@ -205,9 +743,34 @@ const InitiativeDrawer = ({
     navigate('/goals')
   }
 
+  const handleOpenLinkedAssessment = (item) => {
+    if (typeof onLinkedAssessmentClick === 'function') {
+      onLinkedAssessmentClick(item)
+      if (item?.assessmentId) {
+        return
+      }
+    }
+
+    if (!item?.assessmentId) {
+      setToast({
+        type: 'error',
+        message: 'Linked assessment reference is unavailable for this item.',
+      })
+      return
+    }
+
+    const targetResponseId = item.responseId || item.subcategoryId || item.id || null
+    navigate(`/assessments/${item.assessmentId}/read-only`, {
+      state: {
+        responseId: targetResponseId,
+        backTo: '/goals',
+      },
+    })
+  }
+
   const handleScheduleSelect = (year, quarter) => {
-    const resolvedYear = Number(year)
-    const resolvedQuarter = quarter || QUARTERS[0]
+    const resolvedYear = Number(year) || new Date().getFullYear()
+    const resolvedQuarter = QUARTERS.includes(quarter) ? quarter : QUARTERS[0]
     const startDate = getQuarterStartDate(resolvedYear, resolvedQuarter)
     setForm((prev) => ({
       ...prev,
@@ -377,11 +940,11 @@ const InitiativeDrawer = ({
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
-                      <select
-                        value={form.year}
-                        onChange={(event) => handleScheduleSelect(event.target.value, form.quarter)}
-                        className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm disabled:bg-gray-50 disabled:text-gray-500"
-                        disabled={!form.isScheduled}
+                        <select
+                          value={form.year ?? ''}
+                          onChange={(event) => handleScheduleSelect(event.target.value, form.quarter)}
+                          className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                          disabled={!form.isScheduled}
                       >
                         {yearOptions.map((year) => (
                           <option key={year} value={year}>
@@ -389,11 +952,11 @@ const InitiativeDrawer = ({
                           </option>
                         ))}
                       </select>
-                      <select
-                        value={form.quarter}
-                        onChange={(event) => handleScheduleSelect(form.year, event.target.value)}
-                        className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm disabled:bg-gray-50 disabled:text-gray-500"
-                        disabled={!form.isScheduled}
+                        <select
+                          value={form.quarter ?? ''}
+                          onChange={(event) => handleScheduleSelect(form.year, event.target.value)}
+                          className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                          disabled={!form.isScheduled}
                       >
                         {QUARTERS.map((quarter) => (
                           <option key={quarter} value={quarter}>
@@ -410,7 +973,7 @@ const InitiativeDrawer = ({
                   <FiUser /> CONTACT
                 </label>
                 <select
-                  value={form.contactId}
+                  value={form.contactId ?? ''}
                   onChange={(event) => handleChange('contactId', Number(event.target.value))}
                   className="h-10 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm"
                 >
@@ -672,53 +1235,59 @@ const InitiativeDrawer = ({
               </label>
               {form.linkedItems && form.linkedItems.length > 0 ? (
                 <div className="space-y-2">
-                  {form.linkedItems.map((item, index) => (
-                    <div
-                      key={`${item.assessmentId}-${item.responseId}-${index}`}
-                      className="flex items-center justify-between gap-3 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => onLinkedAssessmentClick(item)}
-                        className="text-left hover:text-[rgb(5,117,204)]"
+                  {form.linkedItems.map((item, index) => {
+                    const hasAssessmentLink = Boolean(item.assessmentId)
+                    const cleanTitle = cleanLinkedText(item.title) || 'Linked subcategory'
+                    const responseLabel = normalizeResponseLabel(item.responseLabel) || 'Unknown'
+
+                    return (
+                      <div
+                        key={`${item.assessmentId}-${item.responseId}-${index}`}
+                        className="flex items-center justify-between gap-3 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700"
                       >
-                        <div className="font-semibold">
-                          {item.categoryTitle
-                            ? `${String(item.categoryTitle).replace(/\s*\(Copy\)\s*/gi, '').trim()} - `
-                            : ''}
-                          {String(item.title).replace(/\s*\(Copy\)\s*/gi, '').trim()}
-                        </div>
-                        <div className="mt-1">
-                          <span
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getResponseBadge(
-                              item.responseLabel
-                            )}`}
-                          >
-                            {item.responseLabel || 'Unknown'}
-                          </span>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                              onClick={() =>
-                                setForm((prev) => ({
-                                  ...prev,
-                                  linkedItems: prev.linkedItems.filter(
-                                    (entry, entryIndex) => entryIndex !== index
-                                  ),
-                                  linkedSubcategoryIds: prev.linkedSubcategoryIds.filter(
-                                    (subcategoryId) =>
-                                      subcategoryId !== item.subcategoryId
-                                  ),
-                                }))
-                              }
-                        className="text-red-600 hover:text-red-700"
-                        aria-label="Remove linked assessment"
-                      >
-                        <FiTrash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenLinkedAssessment(item)}
+                          className={`text-left ${
+                            hasAssessmentLink
+                              ? 'hover:text-[rgb(5,117,204)]'
+                              : 'text-gray-600 hover:text-gray-700'
+                          }`}
+                        >
+                          <div className="font-semibold">
+                            {cleanTitle}
+                          </div>
+                          <div className="mt-1">
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getResponseBadge(
+                                responseLabel
+                              )}`}
+                            >
+                              {responseLabel}
+                            </span>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setForm((prev) => ({
+                              ...prev,
+                              linkedItems: prev.linkedItems.filter(
+                                (entry, entryIndex) => entryIndex !== index
+                              ),
+                              linkedSubcategoryIds: prev.linkedSubcategoryIds.filter(
+                                (subcategoryId) => subcategoryId !== item.subcategoryId
+                              ),
+                            }))
+                          }
+                          className="text-red-600 hover:text-red-700"
+                          aria-label="Remove linked assessment"
+                        >
+                          <FiTrash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )
+                  })}
                 </div>
               ) : (
                 <p className="text-xs text-gray-500">No linked assessments yet.</p>

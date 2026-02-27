@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 import {
   createTemplate,
   deleteTemplate,
+  getTemplateById,
   getTemplates,
   updateTemplate,
 } from '../../shared/services/templateService'
@@ -20,6 +21,37 @@ import {
   getNextMultiResponse,
   normalizeTemplate,
 } from './templateUtils'
+
+const AUTO_SAVE_INTERVAL_MS = 30000
+const EMPTY_TEMPLATE = { title: '', categories: [] }
+const serializeTemplate = (value) => JSON.stringify(value || EMPTY_TEMPLATE)
+const TEMPLATE_OWNERSHIP_KEY = 'templateOwnershipById'
+const resolveTemplateOrganizationId = (template) =>
+  template?.organization_id ??
+  template?.organizationId ??
+  template?.organization?.id ??
+  null
+const resolveTemplateId = (template) =>
+  template?.id ?? template?.template_id ?? template?.templateId ?? null
+
+const resolveTemplateEntity = (payload) => payload?.template || payload
+
+const readTemplateOwnershipMap = () => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TEMPLATE_OWNERSHIP_KEY) || '{}')
+    return raw && typeof raw === 'object' ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
+const writeTemplateOwnershipMap = (value) => {
+  try {
+    localStorage.setItem(TEMPLATE_OWNERSHIP_KEY, JSON.stringify(value || {}))
+  } catch {
+    // ignore
+  }
+}
 
 const TemplatesPage = () => {
   const activeClientName = useAppStore((state) => state.activeOrganizationName) || 'Client'
@@ -39,6 +71,12 @@ const TemplatesPage = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [collapsedCategories, setCollapsedCategories] = useState({})
   const [collapsedSubcategories, setCollapsedSubcategories] = useState({})
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [isAutoSaving, setIsAutoSaving] = useState(false)
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState(null)
+  const lastSavedSnapshotRef = useRef(serializeTemplate(EMPTY_TEMPLATE))
+  const formDataRef = useRef(formData)
+  const saveInFlightRef = useRef(false)
 
   const totalCategoryWeight = useMemo(
     () =>
@@ -50,26 +88,119 @@ const TemplatesPage = () => {
   )
 
   const loadTemplates = useCallback(async () => {
+    const organizationId = Number(activeOrganizationId)
+    if (!organizationId) {
+      setTemplates([])
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError('')
     try {
-      const data = await getTemplates()
+      const data = await getTemplates({
+        organization_id: organizationId,
+        organizationId: organizationId,
+      })
       const list = Array.isArray(data) ? data : data?.templates || []
-      setTemplates(list)
+      const ownershipMap = readTemplateOwnershipMap()
+      let hasOwnershipUpdates = false
+
+      const unknownOwnershipIds = list
+        .map((template) => {
+          const templateId = resolveTemplateId(template)
+          const templateOrganizationId = resolveTemplateOrganizationId(template)
+          if (!templateId) {
+            return null
+          }
+          if (templateOrganizationId !== null && templateOrganizationId !== undefined) {
+            return null
+          }
+          if (ownershipMap[templateId] !== undefined && ownershipMap[templateId] !== null) {
+            return null
+          }
+          return templateId
+        })
+        .filter(Boolean)
+
+      if (unknownOwnershipIds.length > 0) {
+        const details = await Promise.all(
+          unknownOwnershipIds.map(async (templateId) => {
+            try {
+              const detailPayload = await getTemplateById(templateId)
+              const detailTemplate = resolveTemplateEntity(detailPayload)
+              return {
+                templateId,
+                organizationId: resolveTemplateOrganizationId(detailTemplate),
+              }
+            } catch {
+              return { templateId, organizationId: null }
+            }
+          })
+        )
+        details.forEach(({ templateId, organizationId: ownerId }) => {
+          if (ownerId === null || ownerId === undefined) {
+            return
+          }
+          ownershipMap[templateId] = String(ownerId)
+          hasOwnershipUpdates = true
+        })
+      }
+
+      const scoped = list.filter((template) => {
+        const templateId = resolveTemplateId(template)
+        const templateOrganizationId = resolveTemplateOrganizationId(template)
+        if (templateId && templateOrganizationId !== null && templateOrganizationId !== undefined) {
+          if (String(ownershipMap[templateId] || '') !== String(templateOrganizationId)) {
+            ownershipMap[templateId] = String(templateOrganizationId)
+            hasOwnershipUpdates = true
+          }
+        }
+        const ownedOrganizationId =
+          templateOrganizationId !== null && templateOrganizationId !== undefined
+            ? templateOrganizationId
+            : templateId
+              ? ownershipMap[templateId]
+              : null
+        if (ownedOrganizationId === null || ownedOrganizationId === undefined) {
+          return false
+        }
+        return String(ownedOrganizationId) === String(organizationId)
+      })
+      if (hasOwnershipUpdates) {
+        writeTemplateOwnershipMap(ownershipMap)
+      }
+      setTemplates(scoped)
     } catch {
       setError('Unable to load templates')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activeOrganizationId])
 
   useEffect(() => {
     loadTemplates()
   }, [loadTemplates])
 
+  useEffect(() => {
+    setSelectedTemplateId(null)
+    setFormData(EMPTY_TEMPLATE)
+    lastSavedSnapshotRef.current = serializeTemplate(EMPTY_TEMPLATE)
+    setHasUnsavedChanges(false)
+    setLastAutoSavedAt(null)
+    setSearchQuery('')
+    setActiveTab('browse')
+    setCollapsedCategories({})
+    setCollapsedSubcategories({})
+  }, [activeOrganizationId])
+
   const handleSelectTemplate = (template) => {
-    setSelectedTemplateId(template?.id ?? null)
-    setFormData(normalizeTemplate(template))
+    const normalized = normalizeTemplate(template)
+    setSelectedTemplateId(resolveTemplateId(template))
+    setFormData(normalized)
+    lastSavedSnapshotRef.current = serializeTemplate(normalized)
+    setHasUnsavedChanges(false)
+    setLastAutoSavedAt(null)
     setError('')
     setSuccess('')
     setActiveTab('edit')
@@ -79,7 +210,10 @@ const TemplatesPage = () => {
 
   const handleNewTemplate = () => {
     setSelectedTemplateId(null)
-    setFormData({ title: '', categories: [] })
+    setFormData(EMPTY_TEMPLATE)
+    lastSavedSnapshotRef.current = serializeTemplate(EMPTY_TEMPLATE)
+    setHasUnsavedChanges(false)
+    setLastAutoSavedAt(null)
     setError('')
     setSuccess('')
     setActiveTab('edit')
@@ -314,71 +448,170 @@ const TemplatesPage = () => {
     }))
   }
 
-  const validateWeights = () => {
-    if (formData.categories.length === 0) {
-      return 'Add at least one category.'
-    }
-    if (totalCategoryWeight !== 100) {
-      return 'Category weights must sum to 100.'
-    }
-    for (const category of formData.categories) {
-      const totalSub = category.sub_categories.reduce(
-        (sum, sub) => sum + (Number(sub.weight_percentage) || 0),
-        0
-      )
-      if (category.sub_categories.length === 0) {
-        return 'Each category must have at least one subcategory.'
+  useEffect(() => {
+    formDataRef.current = formData
+    setHasUnsavedChanges(serializeTemplate(formData) !== lastSavedSnapshotRef.current)
+  }, [formData])
+
+  const saveTemplate = useCallback(
+    async ({ silent = false } = {}) => {
+      const validateWeights = () => {
+        if (formData.categories.length === 0) {
+          return 'Add at least one category.'
+        }
+        if (totalCategoryWeight !== 100) {
+          return 'Category weights must sum to 100.'
+        }
+        for (const category of formData.categories) {
+          const totalSub = category.sub_categories.reduce(
+            (sum, sub) => sum + (Number(sub.weight_percentage) || 0),
+            0
+          )
+          if (category.sub_categories.length === 0) {
+            return 'Each category must have at least one subcategory.'
+          }
+          if (totalSub !== 100) {
+            return `Subcategory weights must sum to 100 in "${category.title || 'Untitled'}".`
+          }
+          for (const sub of category.sub_categories) {
+            if (sub.response_options.length === 0) {
+              return `Add at least one response option in "${sub.title || 'Untitled'}".`
+            }
+          }
+        }
+        return ''
       }
-      if (totalSub !== 100) {
-        return `Subcategory weights must sum to 100 in "${category.title || 'Untitled'}".`
+
+      if (saveInFlightRef.current || deleting || loading) {
+        return false
       }
-      for (const sub of category.sub_categories) {
-        if (sub.response_options.length === 0) {
-          return `Add at least one response option in "${sub.title || 'Untitled'}".`
+      const organizationId = Number(activeOrganizationId)
+      if (!organizationId) {
+        if (!silent) {
+          setError('Select a client before saving templates.')
+        }
+        return false
+      }
+      if (!silent) {
+        setError('')
+        setSuccess('')
+      }
+      if (!formData.title.trim()) {
+        if (!silent) {
+          setError('Template title is required.')
+        }
+        return false
+      }
+      const validationError = validateWeights()
+      if (validationError) {
+        if (!silent) {
+          setError(validationError)
+        }
+        return false
+      }
+
+      saveInFlightRef.current = true
+      if (silent) {
+        setIsAutoSaving(true)
+      } else {
+        setSaving(true)
+      }
+
+      try {
+        const snapshotBeforeSave = serializeTemplate(formData)
+        const basePayload = buildPayload(formData)
+        if (selectedTemplateId) {
+          await updateTemplate(selectedTemplateId, basePayload)
+          if (!silent) {
+            setSuccess('Template updated successfully!')
+          }
+        } else {
+          const payload = {
+            ...basePayload,
+            organization_id: organizationId,
+          }
+          const created = await createTemplate(payload)
+          const createdTemplate = created?.template || created
+          const createdTemplateId = resolveTemplateId(createdTemplate)
+          setSelectedTemplateId(createdTemplateId || null)
+          if (createdTemplateId) {
+            const ownershipMap = readTemplateOwnershipMap()
+            ownershipMap[createdTemplateId] = String(organizationId)
+            writeTemplateOwnershipMap(ownershipMap)
+          }
+          if (!silent) {
+            setSuccess('Template created successfully!')
+          }
+        }
+        await loadTemplates()
+        lastSavedSnapshotRef.current = snapshotBeforeSave
+        setHasUnsavedChanges(
+          serializeTemplate(formDataRef.current) !== lastSavedSnapshotRef.current
+        )
+        setLastAutoSavedAt(new Date())
+        if (!silent) {
+          setTimeout(() => setSuccess(''), 3000)
+        }
+        return true
+      } catch (err) {
+        const details = err?.response?.data?.detail
+        const message = Array.isArray(details)
+          ? details.map((item) => item?.msg || 'Validation error').join(' ')
+          : details || 'Unable to save template. Check required fields and weights.'
+        if (!silent) {
+          setError(message)
+        }
+        return false
+      } finally {
+        saveInFlightRef.current = false
+        if (silent) {
+          setIsAutoSaving(false)
+        } else {
+          setSaving(false)
         }
       }
-    }
-    return ''
-  }
+    },
+    [
+      activeOrganizationId,
+      deleting,
+      formData,
+      loading,
+      loadTemplates,
+      selectedTemplateId,
+      totalCategoryWeight,
+    ]
+  )
 
-  const handleSave = async () => {
-    setError('')
-    setSuccess('')
-    if (!formData.title.trim()) {
-      setError('Template title is required.')
+  useEffect(() => {
+    if (activeTab !== 'edit') {
       return
     }
-
-    const validationError = validateWeights()
-    if (validationError) {
-      setError(validationError)
-      return
-    }
-
-    setSaving(true)
-    try {
-      const payload = buildPayload(formData)
-      if (selectedTemplateId) {
-        await updateTemplate(selectedTemplateId, payload)
-        setSuccess('✓ Template updated successfully!')
-      } else {
-        const created = await createTemplate(payload)
-        setSelectedTemplateId(created?.id || null)
-        setSuccess('✓ Template created successfully!')
+    const intervalId = setInterval(() => {
+      if (!hasUnsavedChanges) {
+        return
       }
-      await loadTemplates()
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err) {
-      const details = err?.response?.data?.detail
-      const message = Array.isArray(details)
-        ? details.map((item) => item?.msg || 'Validation error').join(' ')
-        : details || 'Unable to save template. Check required fields and weights.'
-      setError(message)
-    } finally {
-      setSaving(false)
-    }
-  }
+      void saveTemplate({ silent: true })
+    }, AUTO_SAVE_INTERVAL_MS)
+    return () => clearInterval(intervalId)
+  }, [activeTab, hasUnsavedChanges, saveTemplate])
 
+  const autoSaveStatus = useMemo(() => {
+    if (activeTab !== 'edit') {
+      return ''
+    }
+    if (isAutoSaving) {
+      return 'Auto-saving...'
+    }
+    if (hasUnsavedChanges) {
+      return 'Unsaved changes. Auto-save runs every 30 seconds.'
+    }
+    if (lastAutoSavedAt) {
+      return `Auto-saved at ${lastAutoSavedAt.toLocaleTimeString('en-US')}`
+    }
+    return 'Auto-save runs every 30 seconds.'
+  }, [activeTab, hasUnsavedChanges, isAutoSaving, lastAutoSavedAt])
+
+  const handleSave = () => saveTemplate({ silent: false })
   const handleDeleteConfirm = async () => {
     if (!selectedTemplateId) {
       setError('Select a template to delete.')
@@ -388,7 +621,7 @@ const TemplatesPage = () => {
     setError('')
     try {
       await deleteTemplate(selectedTemplateId)
-      setSuccess('✓ Template deleted successfully!')
+      setSuccess('Template deleted successfully!')
       handleNewTemplate()
       await loadTemplates()
       setActiveTab('browse')
@@ -452,6 +685,7 @@ const TemplatesPage = () => {
               setFormData={setFormData}
               selectedTemplateId={selectedTemplateId}
               saving={saving}
+              autoSaveStatus={autoSaveStatus}
               deleting={deleting}
               handleSave={handleSave}
               handleDeleteConfirm={handleDeleteConfirm}

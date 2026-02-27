@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { FiArrowLeft, FiDownload } from 'react-icons/fi'
 import {
@@ -21,7 +21,51 @@ import { mapInitiativeFromApi, mapInitiativeToApi } from '../../roadmap/initiati
 import { useAppStore } from '../../../shared/store/useAppStore'
 import ToastMessage from '../../../shared/components/ToastMessage'
 
-const toArray = (value) => (Array.isArray(value) ? value : [])
+const toArray = (value) => {
+  if (Array.isArray(value)) {
+    return value
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value)
+    if (keys.length === 0) {
+      return []
+    }
+    const looksLikeEntity = [
+      'id',
+      'title',
+      'name',
+      'label',
+      'question',
+      'question_text',
+      'questionText',
+      'subcategories',
+      'sub_categories',
+      'response_options',
+      'responseOptions',
+      'responses',
+      'options',
+      'selected_response_id',
+      'selectedResponseId',
+    ].some((key) => Object.prototype.hasOwnProperty.call(value, key))
+    if (looksLikeEntity) {
+      return [value]
+    }
+    return Object.values(value)
+  }
+  return []
+}
+
+const cleanText = (value) => String(value ?? '').trim()
+
+const pickFirstText = (...values) => {
+  for (const value of values) {
+    const normalized = cleanText(value)
+    if (normalized) {
+      return normalized
+    }
+  }
+  return ''
+}
 
 const normalizeAssessment = (data) => {
   const assessment = data?.assessment || data
@@ -59,26 +103,62 @@ const normalizeAssessment = (data) => {
           option.response_type || option.responseType || option.type || option.value
         return {
           id: option.id ?? `${subcategoryId}-option-${optionIndex}`,
-          label:
-            option.label ||
-            option.title ||
-            option.name ||
-            (responseType ? formatLabel(responseType) : null) ||
-            `Option ${optionIndex + 1}`,
-          description: option.description || option.text || option.details || '',
+          label: pickFirstText(
+            option.label,
+            option.title,
+            option.name,
+            option.option_label,
+            option.optionLabel,
+            responseType ? formatLabel(responseType) : '',
+            `Option ${optionIndex + 1}`
+          ),
+          description: pickFirstText(
+            option.description,
+            option.text,
+            option.details,
+            option.help_text,
+            option.helpText
+          ),
         }
       })
 
       return {
         id: subcategoryId,
-        title:
-          subcategory.title ||
-          subcategory.name ||
-          subcategory.question ||
-          subcategory.label ||
-          `Question ${subIndex + 1}`,
-        description:
-          subcategory.description || subcategory.help_text || subcategory.summary || '',
+        title: pickFirstText(
+          subcategory.title,
+          subcategory.subcategory_title,
+          subcategory.subcategoryTitle,
+          subcategory.sub_category_title,
+          subcategory.subCategoryTitle,
+          subcategory.question_title,
+          subcategory.questionTitle,
+          subcategory.question_text,
+          subcategory.questionText,
+          subcategory.name,
+          subcategory.question,
+          subcategory.question?.title,
+          subcategory.question?.text,
+          subcategory.question?.label,
+          subcategory.label,
+          subcategory.prompt,
+          subcategory.item_title,
+          subcategory.itemTitle,
+          subcategory.subcategory?.title,
+          subcategory.sub_category?.title,
+          subcategory.template_subcategory?.title,
+          subcategory.template_sub_category?.title,
+          subcategory.template_question?.title,
+          subcategory.templateItem?.title,
+          `Question ${subIndex + 1}`
+        ),
+        description: pickFirstText(
+          subcategory.description,
+          subcategory.help_text,
+          subcategory.helpText,
+          subcategory.summary,
+          subcategory.details,
+          subcategory.instructions
+        ),
         responseOptions,
         selectedResponseId:
           subcategory.selected_response_id ||
@@ -91,9 +171,23 @@ const normalizeAssessment = (data) => {
 
     return {
       id: categoryId,
-      title:
-        category.title || category.name || category.label || `Category ${categoryIndex + 1}`,
-      description: category.description || category.summary || '',
+      title: pickFirstText(
+        category.title,
+        category.category_title,
+        category.categoryTitle,
+        category.category?.title,
+        category.template_category?.title,
+        category.name,
+        category.label,
+        `Category ${categoryIndex + 1}`
+      ),
+      description: pickFirstText(
+        category.description,
+        category.summary,
+        category.details,
+        category.help_text,
+        category.helpText
+      ),
       subcategories,
     }
   })
@@ -101,7 +195,13 @@ const normalizeAssessment = (data) => {
   return {
     ...assessment,
     id: assessment?.id || assessment?.assessment_id,
-    title: assessment?.title || assessment?.name || 'Assessment',
+    title: pickFirstText(
+      assessment?.title,
+      assessment?.assessment_title,
+      assessment?.assessmentTitle,
+      assessment?.name,
+      'Assessment'
+    ),
     status: assessment?.status,
     organizationId: assessment?.organization_id || assessment?.organizationId,
     categories,
@@ -125,6 +225,7 @@ const formatDateLabel = (value) => {
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
+const AUTO_SAVE_INTERVAL_MS = 30000
 
 const loadLinksForAssessment = (assessmentId) => {
   if (!assessmentId) {
@@ -172,7 +273,9 @@ const PerformAssessment = ({
   const [expandedSections, setExpandedSections] = useState(() => new Set())
   const [expandedItems, setExpandedItems] = useState(() => new Set())
   const [selections, setSelections] = useState({})
+  const [pendingResponses, setPendingResponses] = useState({})
   const [savingItems, setSavingItems] = useState(() => new Set())
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState(null)
   const [isCompleting, setIsCompleting] = useState(false)
   const [responseFilter, setResponseFilter] = useState('all')
   const [initiatives, setInitiatives] = useState([])
@@ -190,6 +293,8 @@ const PerformAssessment = ({
   })
   const [isDownloadingReport, setIsDownloadingReport] = useState(false)
   const [toast, setToast] = useState(null)
+  const pendingResponsesRef = useRef({})
+  const isFlushingResponsesRef = useRef(false)
 
   useEffect(() => {
     let isMounted = true
@@ -222,6 +327,9 @@ const PerformAssessment = ({
           })
         })
         setSelections(initialSelections)
+        setPendingResponses({})
+        setSavingItems(new Set())
+        setLastAutoSavedAt(null)
       } catch (loadError) {
         console.error('Unable to load assessment:', loadError)
         if (isMounted) {
@@ -291,6 +399,10 @@ const PerformAssessment = ({
     const timer = setTimeout(() => setToast(null), 3000)
     return () => clearTimeout(timer)
   }, [toast])
+
+  useEffect(() => {
+    pendingResponsesRef.current = pendingResponses
+  }, [pendingResponses])
 
   const categories = useMemo(() => assessment?.categories || [], [assessment])
   const years = useMemo(() => {
@@ -397,7 +509,7 @@ const PerformAssessment = ({
   const responseGroupOrder = [
     { key: 'at_risk', label: 'At Risk', header: 'bg-red-100 text-red-800', badge: 'bg-red-500 text-white' },
     { key: 'needs_attention', label: 'Needs Attention', header: 'bg-orange-100 text-orange-800', badge: 'bg-orange-500 text-white' },
-    { key: 'acceptable_risk', label: 'Acceptable Risk', header: 'bg-amber-100 text-amber-800', badge: 'bg-amber-500 text-white' },
+    { key: 'acceptable_risk', label: 'Acceptable Risk', header: 'bg-blue-100 text-blue-800', badge: 'bg-blue-500 text-white' },
     { key: 'satisfactory', label: 'Satisfactory', header: 'bg-green-100 text-green-800', badge: 'bg-green-500 text-white' },
     { key: 'yes', label: 'Yes', header: 'bg-green-100 text-green-800', badge: 'bg-green-500 text-white' },
     { key: 'no', label: 'No', header: 'bg-red-100 text-red-800', badge: 'bg-red-500 text-white' },
@@ -413,6 +525,7 @@ const PerformAssessment = ({
     (total, items) => total + items.length,
     0
   )
+  const pendingResponseCount = Object.keys(pendingResponses).length
 
   useEffect(() => {
     if (onProgress && assessmentId) {
@@ -501,8 +614,90 @@ const PerformAssessment = ({
     return () => clearTimeout(timer)
   }, [categories, focusResponseId])
 
-  const handleSelect = async (subcategoryId, responseId) => {
-    if (isCompleted || readOnly) {
+  const flushPendingResponses = useCallback(async () => {
+    if (!assessmentId || readOnly || isCompleted) {
+      return true
+    }
+    if (isFlushingResponsesRef.current) {
+      let attempts = 0
+      while (isFlushingResponsesRef.current && attempts < 40) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        attempts += 1
+      }
+      if (isFlushingResponsesRef.current) {
+        return false
+      }
+    }
+
+    const pendingSnapshot = { ...pendingResponsesRef.current }
+    const entries = Object.entries(pendingSnapshot)
+    if (entries.length === 0) {
+      return true
+    }
+
+    isFlushingResponsesRef.current = true
+    let hasErrors = false
+
+    for (const [subcategoryId, responseId] of entries) {
+      setSavingItems((prev) => {
+        const next = new Set(prev)
+        next.add(subcategoryId)
+        return next
+      })
+      try {
+        await updateSubcategoryResponse({
+          assessmentId,
+          subcategoryId,
+          selectedResponseId: responseId,
+        })
+        if (String(pendingSnapshot[subcategoryId]) === String(responseId)) {
+          delete pendingSnapshot[subcategoryId]
+        }
+        setPendingResponses((prev) => {
+          if (prev[subcategoryId] !== responseId) {
+            return prev
+          }
+          const next = { ...prev }
+          delete next[subcategoryId]
+          return next
+        })
+      } catch (saveError) {
+        hasErrors = true
+        console.error('Unable to auto-save response:', saveError)
+      } finally {
+        setSavingItems((prev) => {
+          const next = new Set(prev)
+          next.delete(subcategoryId)
+          return next
+        })
+      }
+    }
+
+    if (hasErrors) {
+      setToast({
+        type: 'error',
+        message: 'Unable to auto-save some responses. Retrying...',
+      })
+    } else {
+      setLastAutoSavedAt(new Date())
+    }
+    pendingResponsesRef.current = pendingSnapshot
+    isFlushingResponsesRef.current = false
+    return !hasErrors
+  }, [assessmentId, isCompleted, readOnly])
+
+  useEffect(() => {
+    if (!assessmentId || readOnly || isCompleted) {
+      return
+    }
+    const intervalId = setInterval(() => {
+      void flushPendingResponses()
+    }, AUTO_SAVE_INTERVAL_MS)
+    return () => clearInterval(intervalId)
+  }, [assessmentId, flushPendingResponses, isCompleted, readOnly])
+
+  const handleSelect = (subcategoryId, responseId) => {
+    if (isCompleted || readOnly || isCompleting) {
       return
     }
     setSelections((prev) => ({
@@ -512,27 +707,10 @@ const PerformAssessment = ({
     if (!assessmentId) {
       return
     }
-    setSavingItems((prev) => {
-      const next = new Set(prev)
-      next.add(subcategoryId)
-      return next
-    })
-    try {
-      await updateSubcategoryResponse({
-        assessmentId,
-        subcategoryId,
-        selectedResponseId: responseId,
-      })
-    } catch (saveError) {
-      console.error('Unable to save response:', saveError)
-      setError('Unable to save response')
-    } finally {
-      setSavingItems((prev) => {
-        const next = new Set(prev)
-        next.delete(subcategoryId)
-        return next
-      })
-    }
+    setPendingResponses((prev) => ({
+      ...prev,
+      [subcategoryId]: responseId,
+    }))
   }
 
   const handleComplete = async () => {
@@ -542,6 +720,14 @@ const PerformAssessment = ({
     setIsCompleting(true)
     setError('')
     try {
+      const saved = await flushPendingResponses()
+      if (!saved) {
+        setToast({
+          type: 'error',
+          message: 'Unable to save latest responses. Please try again.',
+        })
+        return
+      }
       await completeAssessment(assessmentId)
       const completedAt = new Date().toISOString()
       setAssessment((prev) =>
@@ -668,7 +854,7 @@ const PerformAssessment = ({
         const alreadyLinked = existing.some(
           (entry) =>
             String(entry.assessmentId) === String(assessmentId) &&
-            String(entry.responseId) === String(item.id)
+            String(entry.responseId) === String(responseId)
         )
         if (alreadyLinked) {
           return initiative
@@ -764,15 +950,37 @@ const PerformAssessment = ({
   }
 
   const getBadgeClasses = (label) => {
-    const normalized = label.toLowerCase()
-    if (normalized.includes('risk')) {
-      return 'bg-red-100 text-red-800'
-    }
-    if (normalized.includes('attention')) {
-      return 'bg-orange-100 text-orange-800'
-    }
+    const normalized = String(label || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+
     if (normalized.includes('satisfactory') || normalized.includes('good')) {
-      return 'bg-green-100 text-green-800'
+      return 'bg-green-100 text-green-700'
+    }
+    if (normalized.includes('acceptable')) {
+      return 'bg-blue-100 text-blue-700'
+    }
+    if (normalized.includes('needs') || normalized.includes('attention')) {
+      return 'bg-orange-100 text-orange-700'
+    }
+    if (normalized.includes('at_risk')) {
+      return 'bg-red-100 text-red-700'
+    }
+    if (normalized.includes('not_applicable')) {
+      return 'bg-purple-100 text-purple-700'
+    }
+    if (normalized.includes('unknown')) {
+      return 'bg-gray-100 text-gray-700'
+    }
+    if (normalized === 'yes') {
+      return 'bg-green-100 text-green-700'
+    }
+    if (normalized === 'no') {
+      return 'bg-red-100 text-red-700'
+    }
+    if (normalized.includes('partial')) {
+      return 'bg-orange-100 text-orange-700'
     }
     return 'bg-gray-100 text-gray-700'
   }
@@ -846,6 +1054,15 @@ const PerformAssessment = ({
             {(performedBy || formattedAssessmentDate) && (
               <p className="mt-1 text-xs text-gray-500">
                 Performed by: {performedBy || 'Unknown'} {formattedAssessmentDate}
+              </p>
+            )}
+            {!readOnly && !isCompleted && (
+              <p className="mt-1 text-xs text-gray-500">
+                {pendingResponseCount > 0
+                  ? `Unsaved changes: ${pendingResponseCount}. Auto-save runs every 30 seconds.`
+                  : lastAutoSavedAt
+                  ? `Auto-saved at ${lastAutoSavedAt.toLocaleTimeString('en-US')}`
+                  : 'Auto-save runs every 30 seconds.'}
               </p>
             )}
           </div>
@@ -1079,6 +1296,7 @@ const PerformAssessment = ({
         onSave={handleSaveInitiativeFromAssessment}
         onDelete={handleDeleteInitiativeFromAssessment}
         onLinkedAssessmentClick={handleLinkedAssessmentClick}
+        linkedAssessmentId={assessmentId}
       />
       <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
