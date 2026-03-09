@@ -1,4 +1,5 @@
 import React from 'react'
+import AppSelect from '../../../shared/components/AppSelect'
 
 const CompletedSummary = ({
   responseFilter,
@@ -9,25 +10,27 @@ const CompletedSummary = ({
   totalResponsesCount,
   renderGroupRow,
 }) => {
+  const filterOptions = [
+    { value: 'all', label: `Responses (${totalResponsesCount})` },
+    ...responseGroupOrder
+      .filter((group) => responseGroups[group.key]?.length)
+      .map((group) => ({
+        value: group.key,
+        label: `${group.label} (${responseGroups[group.key].length})`,
+      })),
+  ]
+
   return (
     <div className="px-4 py-6 md:px-6 bg-gray-50 space-y-6">
       <div className="border-t border-gray-200 pt-4">
         <p className="text-sm font-semibold text-gray-800">Include responses</p>
         <div className="mt-3 inline-flex items-center gap-2">
-          <select
+          <AppSelect
+            options={filterOptions}
             value={responseFilter}
-            onChange={(e) => onFilterChange(e.target.value)}
-            className="h-10 rounded-md border border-gray-300 bg-white px-3 text-sm font-medium text-gray-800"
-          >
-            <option value="all">Responses ({totalResponsesCount})</option>
-            {responseGroupOrder
-              .filter((group) => responseGroups[group.key]?.length)
-              .map((group) => (
-                <option key={group.key} value={group.key}>
-                  {group.label} ({responseGroups[group.key].length})
-                </option>
-              ))}
-          </select>
+            onChange={onFilterChange}
+            className="min-w-56"
+          />
         </div>
       </div>
 
@@ -51,9 +54,6 @@ const CompletedSummary = ({
               <table className="min-w-full w-full text-sm table-fixed">
                 <thead>
                   <tr className="text-left text-xs text-gray-600 border-b border-gray-200">
-                    <th className="w-10 px-4 py-2">
-                      <input type="checkbox" className="h-4 w-4" />
-                    </th>
                     <th className="px-4 py-2 w-[55%]">Title &amp; Description</th>
                     <th className="px-4 py-2 w-[25%]">Response</th>
                     <th className="px-4 py-2 w-[20%] text-center">Initiative</th>

@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FiEdit2 } from 'react-icons/fi'
 import Table from '../../../shared/components/Tables'
-import { createOrganization, getOrganizations } from '../../../shared/services/organizationService'
+import {
+  createOrganization,
+  getOrganizations,
+  updateOrganization,
+} from '../../../shared/services/organizationService'
 
 const AllClients = () => {
   const navigate = useNavigate()
@@ -13,6 +18,9 @@ const AllClients = () => {
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDescription, setNewDescription] = useState('')
+  const [editingClientId, setEditingClientId] = useState(null)
+  const [editingDescription, setEditingDescription] = useState('')
+  const [savingDescription, setSavingDescription] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -63,6 +71,7 @@ const AllClients = () => {
       filteredClients.map((client) => ({
         id: client.id,
         name: client.name || `Organization ${client.id}`,
+        rawDescription: client.description || '',
         description: client.description || 'No description',
       })),
     [filteredClients]
@@ -96,6 +105,50 @@ const AllClients = () => {
     }
   }
 
+  const handleStartEditDescription = (row) => {
+    setEditingClientId(row.id)
+    setEditingDescription(row.rawDescription || '')
+    setError('')
+  }
+
+  const handleCancelEditDescription = () => {
+    setEditingClientId(null)
+    setEditingDescription('')
+  }
+
+  const handleSaveDescription = async () => {
+    if (!editingClientId) {
+      return
+    }
+    setSavingDescription(true)
+    setError('')
+    const nextDescription = editingDescription.trim()
+    try {
+      const payload = await updateOrganization(editingClientId, {
+        description: nextDescription,
+      })
+      const updated = payload?.organization || payload
+      setClients((prev) =>
+        prev.map((client) =>
+          String(client.id) === String(editingClientId)
+            ? {
+                ...client,
+                ...(updated || {}),
+                description:
+                  updated?.description !== undefined ? updated.description : nextDescription,
+              }
+            : client
+        )
+      )
+      setEditingClientId(null)
+      setEditingDescription('')
+    } catch {
+      setError('Unable to update client description')
+    } finally {
+      setSavingDescription(false)
+    }
+  }
+
   const columns = [
     {
       key: 'name',
@@ -111,18 +164,22 @@ const AllClients = () => {
     },
     {
       key: 'action',
-      label: 'Action',
+      label: <span className="block text-right">Action</span>,
       render: (value, row) => (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation()
-            navigate(`/clients/${row.id}`)
-          }}
-          className="text-[rgb(5,117,204)] hover:underline"
-        >
-          Open
-        </button>
+        <div className="flex w-full justify-end">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              handleStartEditDescription(row)
+            }}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 text-[rgb(5,117,204)] hover:bg-[rgb(236,245,255)]"
+            aria-label="Edit description"
+            title="Edit description"
+          >
+            <FiEdit2 className="h-4 w-4" />
+          </button>
+        </div>
       ),
     },
   ]
@@ -187,6 +244,37 @@ const AllClients = () => {
         <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
           {error}
         </p>
+      )}
+
+      {editingClientId !== null && (
+        <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <p className="text-sm font-semibold text-gray-900">Edit description</p>
+          <textarea
+            rows={4}
+            value={editingDescription}
+            onChange={(event) => setEditingDescription(event.target.value)}
+            placeholder="Client description"
+            className="mt-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700"
+          />
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleSaveDescription}
+              disabled={savingDescription}
+              className="h-9 rounded-md bg-[rgb(5,117,204)] px-4 text-sm font-medium text-white hover:bg-[rgb(0,97,170)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingDescription ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelEditDescription}
+              disabled={savingDescription}
+              className="h-9 rounded-md border border-gray-300 px-4 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="mt-5 flex items-center gap-3">

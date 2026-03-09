@@ -15,6 +15,11 @@ export async function getOrganizationById(organizationId) {
     return response.data;
 }
 
+export async function updateOrganization(organizationId, payload) {
+    const response = await api.patch(`/organizations/${organizationId}`, payload);
+    return response.data;
+}
+
 export async function getOrganizationAssessments(organizationId, statusFilter) {
     const response = await api.get(`/organizations/${organizationId}/assessments`, {
         params: statusFilter ? { status_filter: statusFilter } : {},

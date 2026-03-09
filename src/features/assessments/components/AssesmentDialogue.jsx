@@ -2,37 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Select from 'react-select'
 import SearchTemplate from './SearchTemplate'
 import { createOrganization, getOrganizations } from '../../../shared/services/organizationService'
-import { getTemplateById, getTemplates } from '../../../shared/services/templateService'
+import { getTemplates } from '../../../shared/services/templateService'
 import { useAppStore } from '../../../shared/store/useAppStore'
-
-const resolveTemplateOrganizationId = (template) =>
-  template?.organization_id ??
-  template?.organizationId ??
-  template?.organization?.id ??
-  null
+import AppSelect from '../../../shared/components/AppSelect'
 
 const resolveTemplateId = (template) =>
   template?.id ?? template?.template_id ?? template?.templateId ?? null
-const resolveTemplateEntity = (payload) => payload?.template || payload
-
-const TEMPLATE_OWNERSHIP_KEY = 'templateOwnershipById'
-
-const readTemplateOwnershipMap = () => {
-  try {
-    const raw = JSON.parse(localStorage.getItem(TEMPLATE_OWNERSHIP_KEY) || '{}')
-    return raw && typeof raw === 'object' ? raw : {}
-  } catch {
-    return {}
-  }
-}
-
-const writeTemplateOwnershipMap = (value) => {
-  try {
-    localStorage.setItem(TEMPLATE_OWNERSHIP_KEY, JSON.stringify(value || {}))
-  } catch {
-    // ignore
-  }
-}
 
 const AssesmentDialogue = ({
   onClose,
@@ -100,6 +75,12 @@ const AssesmentDialogue = ({
   )
   const resolvedTemplateOptions = templateOptions
   const templatesAvailable = resolvedTemplateOptions.length > 0
+  const performerOptions = [
+    { value: 'Hamza Abid', label: 'Hamza Abid' },
+    { value: 'Ali Khan', label: 'Ali Khan' },
+    { value: 'Sara Ahmed', label: 'Sara Ahmed' },
+    { value: 'Usman Raza', label: 'Usman Raza' },
+  ]
 
   useEffect(() => {
     let isMounted = true
@@ -175,103 +156,19 @@ const AssesmentDialogue = ({
     let isMounted = true
 
     const loadTemplates = async () => {
-      const organizationId = Number(selectedOrganizationId)
-      if (!organizationId) {
-        if (isMounted) {
-          setTemplates([])
-          setSelectedTemplate(null)
-          setLoadingTemplates(false)
-        }
-        return
-      }
-
       setLoadingTemplates(true)
       try {
-        const data = await getTemplates({
-          organization_id: organizationId,
-          organizationId: organizationId,
-        })
+        const data = await getTemplates()
         const list = Array.isArray(data) ? data : data?.templates || []
         if (!isMounted) {
           return
         }
-        const ownershipMap = readTemplateOwnershipMap()
-        let hasOwnershipUpdates = false
-
-        const unknownOwnershipIds = list
-          .map((template) => {
-            const templateId = resolveTemplateId(template)
-            const templateOrganizationId = resolveTemplateOrganizationId(template)
-            if (!templateId) {
-              return null
-            }
-            if (templateOrganizationId !== null && templateOrganizationId !== undefined) {
-              return null
-            }
-            if (ownershipMap[templateId] !== undefined && ownershipMap[templateId] !== null) {
-              return null
-            }
-            return templateId
-          })
-          .filter(Boolean)
-
-        if (unknownOwnershipIds.length > 0) {
-          const details = await Promise.all(
-            unknownOwnershipIds.map(async (templateId) => {
-              try {
-                const detailPayload = await getTemplateById(templateId)
-                const detailTemplate = resolveTemplateEntity(detailPayload)
-                return {
-                  templateId,
-                  organizationId: resolveTemplateOrganizationId(detailTemplate),
-                }
-              } catch {
-                return { templateId, organizationId: null }
-              }
-            })
-          )
-          details.forEach(({ templateId, organizationId: ownerId }) => {
-            if (ownerId === null || ownerId === undefined) {
-              return
-            }
-            ownershipMap[templateId] = String(ownerId)
-            hasOwnershipUpdates = true
-          })
-        }
-
-        const scoped = list.filter((template) => {
-          const templateId = resolveTemplateId(template)
-          const templateOrganizationId = resolveTemplateOrganizationId(template)
-          if (
-            templateId &&
-            templateOrganizationId !== null &&
-            templateOrganizationId !== undefined
-          ) {
-            if (String(ownershipMap[templateId] || '') !== String(templateOrganizationId)) {
-              ownershipMap[templateId] = String(templateOrganizationId)
-              hasOwnershipUpdates = true
-            }
-          }
-          const ownedOrganizationId =
-            templateOrganizationId !== null && templateOrganizationId !== undefined
-              ? templateOrganizationId
-              : templateId
-                ? ownershipMap[templateId]
-                : null
-          if (ownedOrganizationId === null || ownedOrganizationId === undefined) {
-            return false
-          }
-          return String(ownedOrganizationId) === String(organizationId)
-        })
-        if (hasOwnershipUpdates) {
-          writeTemplateOwnershipMap(ownershipMap)
-        }
-        setTemplates(scoped)
+        setTemplates(list)
         setSelectedTemplate((prev) => {
           if (!prev) {
             return prev
           }
-          return scoped.some(
+          return list.some(
             (template) => String(resolveTemplateId(template)) === String(prev.value)
           )
             ? prev
@@ -466,16 +363,12 @@ const AssesmentDialogue = ({
             <div>
               <h2 className="font-medium text-black">Performed by</h2>
               <div className="mt-2">
-                <select
+                <AppSelect
+                  options={performerOptions}
                   value={performedBy}
-                  onChange={(event) => setPerformedBy(event.target.value)}
-                  className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm text-gray-700"
-                >
-                  <option>Hamza Abid</option>
-                  <option>Ali Khan</option>
-                  <option>Sara Ahmed</option>
-                  <option>Usman Raza</option>
-                </select>
+                  onChange={setPerformedBy}
+                  className="w-full"
+                />
               </div>
             </div>
 

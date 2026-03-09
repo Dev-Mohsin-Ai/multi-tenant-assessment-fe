@@ -9,7 +9,6 @@ import {
 import {
   getInitiatives,
   getInitiativeById,
-  linkSubcategories,
   updateInitiative,
   deleteInitiative,
 } from '../../../shared/services/initiativeService'
@@ -20,6 +19,7 @@ import InitiativeDrawer from '../../roadmap/InitiativeDrawer'
 import { mapInitiativeFromApi, mapInitiativeToApi } from '../../roadmap/initiativeMapper'
 import { useAppStore } from '../../../shared/store/useAppStore'
 import ToastMessage from '../../../shared/components/ToastMessage'
+import { normalizeScoreToPercent } from '../../../shared/utils/scoreUtils'
 
 const toArray = (value) => {
   if (Array.isArray(value)) {
@@ -450,14 +450,9 @@ const PerformAssessment = ({
     ? Math.round((answeredCount / totalItems) * 100)
     : 0
 
-  const scoreCandidate = Number(
-    assessment?.total_score ?? assessment?.totalScore ?? assessment?.score ?? ''
+  const overallScoreValue = normalizeScoreToPercent(
+    assessment?.total_score ?? assessment?.totalScore ?? assessment?.score ?? null
   )
-  const overallScoreValue = Number.isFinite(scoreCandidate)
-    ? scoreCandidate > 0 && scoreCandidate <= 1
-      ? scoreCandidate * 100
-      : scoreCandidate
-    : null
 
   const responseGroups = useMemo(() => {
     const groups = {}
@@ -836,7 +831,9 @@ const PerformAssessment = ({
     const nextLinks = { ...initiativeLinks, [responseId]: initiativeId }
     setInitiativeLinks(nextLinks)
     saveLinksForAssessment(assessmentId, nextLinks)
-    linkSubcategories(initiativeId, [responseId]).catch(() => {})
+    const organizationId =
+      assessment?.organizationId || Number(activeOrganizationId)
+    let initiativeToPersist = null
     setInitiatives((prev) =>
       prev.map((initiative) => {
         if (String(initiative.id) !== String(initiativeId)) {
@@ -859,15 +856,23 @@ const PerformAssessment = ({
         if (alreadyLinked) {
           return initiative
         }
-        return {
+        const updatedInitiative = {
           ...initiative,
           linkedItems: [...existing, linkEntry],
           linkedSubcategoryIds: Array.from(
             new Set([...(initiative.linkedSubcategoryIds || []), responseId])
           ),
         }
+        initiativeToPersist = updatedInitiative
+        return updatedInitiative
       })
     )
+    if (initiativeToPersist && organizationId) {
+      updateInitiative(
+        initiativeId,
+        mapInitiativeToApi(initiativeToPersist, organizationId)
+      ).catch(() => {})
+    }
     setInitiativePicker({ responseId: null, mode: 'existing', isOpen: false })
   }
 
@@ -1114,9 +1119,6 @@ const PerformAssessment = ({
           totalResponsesCount={totalResponsesCount}
           renderGroupRow={(item) => (
             <tr key={item.id} className="border-b border-gray-200 last:border-b-0">
-              <td className="px-4 py-3">
-                <input type="checkbox" className="h-4 w-4" />
-              </td>
               <td className="px-4 py-3 w-[55%]">
                 <div className="font-semibold text-gray-900">{item.title}</div>
                 {item.description && (

@@ -8,6 +8,7 @@ import {
 } from '../../../shared/services/organizationService'
 import { createAssessment } from '../../../shared/services/assessmentService'
 import { useAppStore } from '../../../shared/store/useAppStore'
+import { formatScorePercent } from '../../../shared/utils/scoreUtils'
 
 const Assessment = () => {
   const storedActiveOrganizationId = useAppStore((state) => state.activeOrganizationId)
@@ -175,7 +176,9 @@ const Assessment = () => {
         const completion =
           assessment.completion ||
           (totalItems ? `${Math.round((answered / totalItems) * 100)}%` : '0%')
-        const score = assessment.total_score ?? assessment.score ?? '-'
+        const score = formatScorePercent(
+          assessment.total_score ?? assessment.score ?? null
+        )
         const status = assessment.status || 'in_progress'
         return {
           id,

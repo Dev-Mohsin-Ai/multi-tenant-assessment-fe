@@ -3,7 +3,6 @@ import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 import {
   createTemplate,
   deleteTemplate,
-  getTemplateById,
   getTemplates,
   updateTemplate,
 } from '../../shared/services/templateService'
@@ -23,35 +22,10 @@ import {
 } from './templateUtils'
 
 const AUTO_SAVE_INTERVAL_MS = 30000
-const EMPTY_TEMPLATE = { title: '', categories: [] }
+const EMPTY_TEMPLATE = { title: '', description: '', categories: [] }
 const serializeTemplate = (value) => JSON.stringify(value || EMPTY_TEMPLATE)
-const TEMPLATE_OWNERSHIP_KEY = 'templateOwnershipById'
-const resolveTemplateOrganizationId = (template) =>
-  template?.organization_id ??
-  template?.organizationId ??
-  template?.organization?.id ??
-  null
 const resolveTemplateId = (template) =>
   template?.id ?? template?.template_id ?? template?.templateId ?? null
-
-const resolveTemplateEntity = (payload) => payload?.template || payload
-
-const readTemplateOwnershipMap = () => {
-  try {
-    const raw = JSON.parse(localStorage.getItem(TEMPLATE_OWNERSHIP_KEY) || '{}')
-    return raw && typeof raw === 'object' ? raw : {}
-  } catch {
-    return {}
-  }
-}
-
-const writeTemplateOwnershipMap = (value) => {
-  try {
-    localStorage.setItem(TEMPLATE_OWNERSHIP_KEY, JSON.stringify(value || {}))
-  } catch {
-    // ignore
-  }
-}
 
 const TemplatesPage = () => {
   const activeClientName = useAppStore((state) => state.activeOrganizationName) || 'Client'
@@ -88,95 +62,18 @@ const TemplatesPage = () => {
   )
 
   const loadTemplates = useCallback(async () => {
-    const organizationId = Number(activeOrganizationId)
-    if (!organizationId) {
-      setTemplates([])
-      setLoading(false)
-      return
-    }
-
     setLoading(true)
     setError('')
     try {
-      const data = await getTemplates({
-        organization_id: organizationId,
-        organizationId: organizationId,
-      })
+      const data = await getTemplates()
       const list = Array.isArray(data) ? data : data?.templates || []
-      const ownershipMap = readTemplateOwnershipMap()
-      let hasOwnershipUpdates = false
-
-      const unknownOwnershipIds = list
-        .map((template) => {
-          const templateId = resolveTemplateId(template)
-          const templateOrganizationId = resolveTemplateOrganizationId(template)
-          if (!templateId) {
-            return null
-          }
-          if (templateOrganizationId !== null && templateOrganizationId !== undefined) {
-            return null
-          }
-          if (ownershipMap[templateId] !== undefined && ownershipMap[templateId] !== null) {
-            return null
-          }
-          return templateId
-        })
-        .filter(Boolean)
-
-      if (unknownOwnershipIds.length > 0) {
-        const details = await Promise.all(
-          unknownOwnershipIds.map(async (templateId) => {
-            try {
-              const detailPayload = await getTemplateById(templateId)
-              const detailTemplate = resolveTemplateEntity(detailPayload)
-              return {
-                templateId,
-                organizationId: resolveTemplateOrganizationId(detailTemplate),
-              }
-            } catch {
-              return { templateId, organizationId: null }
-            }
-          })
-        )
-        details.forEach(({ templateId, organizationId: ownerId }) => {
-          if (ownerId === null || ownerId === undefined) {
-            return
-          }
-          ownershipMap[templateId] = String(ownerId)
-          hasOwnershipUpdates = true
-        })
-      }
-
-      const scoped = list.filter((template) => {
-        const templateId = resolveTemplateId(template)
-        const templateOrganizationId = resolveTemplateOrganizationId(template)
-        if (templateId && templateOrganizationId !== null && templateOrganizationId !== undefined) {
-          if (String(ownershipMap[templateId] || '') !== String(templateOrganizationId)) {
-            ownershipMap[templateId] = String(templateOrganizationId)
-            hasOwnershipUpdates = true
-          }
-        }
-        const ownedOrganizationId =
-          templateOrganizationId !== null && templateOrganizationId !== undefined
-            ? templateOrganizationId
-            : templateId
-              ? ownershipMap[templateId]
-              : null
-        if (ownedOrganizationId === null || ownedOrganizationId === undefined) {
-          return false
-        }
-        return String(ownedOrganizationId) === String(organizationId)
-      })
-      if (hasOwnershipUpdates) {
-        writeTemplateOwnershipMap(ownershipMap)
-      }
-      setTemplates(scoped)
+      setTemplates(list)
     } catch {
       setError('Unable to load templates')
     } finally {
       setLoading(false)
     }
-  }, [activeOrganizationId])
+  }, [])
 
   useEffect(() => {
     loadTemplates()
@@ -534,11 +431,6 @@ const TemplatesPage = () => {
           const createdTemplate = created?.template || created
           const createdTemplateId = resolveTemplateId(createdTemplate)
           setSelectedTemplateId(createdTemplateId || null)
-          if (createdTemplateId) {
-            const ownershipMap = readTemplateOwnershipMap()
-            ownershipMap[createdTemplateId] = String(organizationId)
-            writeTemplateOwnershipMap(ownershipMap)
-          }
           if (!silent) {
             setSuccess('Template created successfully!')
           }

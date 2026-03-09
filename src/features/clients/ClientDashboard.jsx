@@ -9,6 +9,7 @@ import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 import { createAssessment } from '../../shared/services/assessmentService'
 import { getOrganizationAssessments, getOrganizationById } from '../../shared/services/organizationService'
 import { useAppStore } from '../../shared/store/useAppStore'
+import { formatScorePercent } from '../../shared/utils/scoreUtils'
 
 const ClientDashboard = () => {
   const { organizationId } = useParams()
@@ -162,7 +163,9 @@ const ClientDashboard = () => {
         const completion =
           assessment.completion ||
           (totalItems ? `${Math.round((answered / totalItems) * 100)}%` : '0%')
-        const score = assessment.total_score ?? assessment.score ?? '-'
+        const score = formatScorePercent(
+          assessment.total_score ?? assessment.score ?? null
+        )
         const status = assessment.status || 'in_progress'
         const updatedAtRaw =
           assessment.updated_at ||

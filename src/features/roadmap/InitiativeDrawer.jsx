@@ -11,6 +11,7 @@ import {
   FiDollarSign,
   FiLink2,
   FiTrash2,
+  FiCheck,
 } from 'react-icons/fi'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -25,11 +26,14 @@ import {
 import { getGoals } from '../../shared/services/goalService'
 import { getInitiativeById } from '../../shared/services/initiativeService'
 import { getAssessmentById } from '../../shared/services/assessmentService'
+import { getTemplateById, getTemplates } from '../../shared/services/templateService'
 import { downloadInitiativePdf } from '../../shared/services/reportService'
 import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
+import AppSelect from '../../shared/components/AppSelect'
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
+const INITIATIVE_TEMPLATE_KEY = 'initiativeTemplateById'
 
 const formatResponseTypeLabel = (value) =>
   String(value || '')
@@ -42,6 +46,128 @@ const cleanLinkedText = (value) =>
   String(value ?? '')
     .replace(/\s*\(Copy\)\s*/gi, ' ')
     .trim()
+
+const resolveTemplateId = (template) =>
+  template?.id ?? template?.template_id ?? template?.templateId ?? null
+
+const resolveTemplateTitle = (template) =>
+  cleanLinkedText(template?.title || template?.name || template?.label || '')
+
+const resolveTemplateEntity = (payload) => payload?.template || payload
+
+const resolveTemplateSummary = (template) =>
+  cleanLinkedText(
+    template?.executive_summary ||
+      template?.executiveSummary ||
+      template?.summary ||
+      template?.description ||
+      ''
+  )
+
+const toSafeAmount = (value) => {
+  const amount = Number(value ?? 0)
+  return Number.isFinite(amount) ? amount : 0
+}
+
+const normalizeOneTimeFees = (fees) =>
+  toArray(fees)
+    .map((fee, index) => {
+      if (!fee || typeof fee !== 'object') {
+        return null
+      }
+      return {
+        id: fee.id ?? createId(),
+        title: cleanLinkedText(
+          fee.title || fee.name || fee.label || fee.item || `Item ${index + 1}`
+        ),
+        amount: toSafeAmount(fee.amount ?? fee.cost ?? fee.value),
+      }
+    })
+    .filter(Boolean)
+
+const normalizeRecurringFees = (fees) =>
+  toArray(fees)
+    .map((fee, index) => {
+      if (!fee || typeof fee !== 'object') {
+        return null
+      }
+      const frequency = String(fee.frequency || fee.cadence || 'monthly').toLowerCase()
+      return {
+        id: fee.id ?? createId(),
+        title: cleanLinkedText(
+          fee.title || fee.name || fee.label || fee.item || `Item ${index + 1}`
+        ),
+        amount: toSafeAmount(fee.amount ?? fee.cost ?? fee.value),
+        frequency: frequency === 'yearly' ? 'yearly' : 'monthly',
+        peopleCount: Math.max(Number(fee.number_of_persons ?? fee.peopleCount ?? 1) || 1, 1),
+      }
+    })
+    .filter(Boolean)
+
+const resolveTemplateOneTimeFees = (template) =>
+  normalizeOneTimeFees(
+    template?.one_time_fees ||
+      template?.oneTimeFees ||
+      template?.one_time_budget ||
+      template?.oneTimeBudget ||
+      template?.budget?.one_time_fees ||
+      template?.budget?.oneTimeFees ||
+      []
+  )
+
+const resolveTemplateRecurringFees = (template) =>
+  normalizeRecurringFees(
+    template?.recurring_fees ||
+      template?.recurringFees ||
+      template?.recurring_budget ||
+      template?.recurringBudget ||
+      template?.budget?.recurring_fees ||
+      template?.budget?.recurringFees ||
+      []
+  )
+
+const resolveTemplateActionItems = (template) =>
+  toArray(template?.action_items || template?.actionItems || template?.actions || [])
+    .map((item, index) => {
+      if (item && typeof item === 'object') {
+        const title = cleanLinkedText(
+          item.title || item.name || item.action || item.label || item.description || ''
+        )
+        if (!title) {
+          return null
+        }
+        return {
+          id: item.id ?? createId(),
+          title,
+        }
+      }
+      const title = cleanLinkedText(item || '')
+      if (!title) {
+        return null
+      }
+      return {
+        id: createId(),
+        title: title || `Action ${index + 1}`,
+      }
+    })
+    .filter(Boolean)
+
+const readInitiativeTemplateMap = () => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(INITIATIVE_TEMPLATE_KEY) || '{}')
+    return raw && typeof raw === 'object' ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
+const writeInitiativeTemplateMap = (value) => {
+  try {
+    localStorage.setItem(INITIATIVE_TEMPLATE_KEY, JSON.stringify(value || {}))
+  } catch {
+    // ignore
+  }
+}
 
 const isNumericLike = (value) => /^-?\d+(\.\d+)?$/.test(String(value || '').trim())
 
@@ -438,6 +564,8 @@ const InitiativeDrawer = ({
         : []
       return {
         ...initiative,
+        templateId: initiative.templateId || null,
+        templateTitle: initiative.templateTitle || '',
         linkedSubcategoryIds:
           initiative.linkedSubcategoryIds?.length
             ? initiative.linkedSubcategoryIds
@@ -466,6 +594,8 @@ const InitiativeDrawer = ({
       assets: [],
       oneTimeFees: [],
       recurringFees: [],
+      templateId: null,
+      templateTitle: '',
       linkedItems: [],
       linkedSubcategoryIds: [],
     }
@@ -482,6 +612,13 @@ const InitiativeDrawer = ({
   const [availableGoals, setAvailableGoals] = useState([])
   const [loadingGoals, setLoadingGoals] = useState(false)
   const [goalError, setGoalError] = useState('')
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
+  const [loadingTemplates, setLoadingTemplates] = useState(false)
+  const [templateError, setTemplateError] = useState('')
+  const [templateSearch, setTemplateSearch] = useState('')
+  const [templateOptions, setTemplateOptions] = useState([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState(null)
+  const [applyingTemplate, setApplyingTemplate] = useState(false)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
   const [toast, setToast] = useState(null)
   const [showGoalInitiativeLinks] = useState(false)
@@ -489,6 +626,17 @@ const InitiativeDrawer = ({
   const goalInitiatives = []
   const handleOpenInitiativeOnRoadmap = () => {}
   const linkedItemsRef = useRef([])
+  const filteredTemplateOptions = useMemo(() => {
+    const query = String(templateSearch || '').trim().toLowerCase()
+    if (!query) {
+      return templateOptions
+    }
+    return templateOptions.filter((template) => {
+      const title = resolveTemplateTitle(template).toLowerCase()
+      const description = cleanLinkedText(template?.description || '').toLowerCase()
+      return title.includes(query) || description.includes(query)
+    })
+  }, [templateOptions, templateSearch])
 
   useEffect(() => {
     const organizationId = Number(activeOrganizationId)
@@ -551,6 +699,65 @@ const InitiativeDrawer = ({
   useEffect(() => {
     linkedItemsRef.current = Array.isArray(form.linkedItems) ? form.linkedItems : []
   }, [form.linkedItems])
+
+  useEffect(() => {
+    if (!open || !form?.id) {
+      return
+    }
+    const templateMap = readInitiativeTemplateMap()
+    const mappedTemplate = templateMap?.[String(form.id)]
+    if (!mappedTemplate) {
+      return
+    }
+    const mappedTemplateId = mappedTemplate?.templateId ?? null
+    const mappedTemplateTitle = cleanLinkedText(mappedTemplate?.templateTitle || '')
+    if (
+      String(form.templateId || '') === String(mappedTemplateId || '') &&
+      cleanLinkedText(form.templateTitle || '') === mappedTemplateTitle
+    ) {
+      return
+    }
+    setForm((prev) => ({
+      ...prev,
+      templateId: mappedTemplateId,
+      templateTitle: mappedTemplateTitle,
+    }))
+  }, [form?.id, form.templateId, form.templateTitle, open])
+
+  useEffect(() => {
+    if (!open || !templateDialogOpen) {
+      return
+    }
+
+    let isActive = true
+    setLoadingTemplates(true)
+    setTemplateError('')
+
+    const loadTemplatesForDialog = async () => {
+      try {
+        const data = await getTemplates()
+        const list = Array.isArray(data) ? data : data?.templates || []
+        if (!isActive) {
+          return
+        }
+        setTemplateOptions(list)
+      } catch {
+        if (isActive) {
+          setTemplateOptions([])
+          setTemplateError('Unable to load templates')
+        }
+      } finally {
+        if (isActive) {
+          setLoadingTemplates(false)
+        }
+      }
+    }
+
+    void loadTemplatesForDialog()
+    return () => {
+      isActive = false
+    }
+  }, [open, templateDialogOpen])
 
   useEffect(() => {
     if (!open || mode !== 'edit' || !form?.id) {
@@ -781,6 +988,88 @@ const InitiativeDrawer = ({
     }))
   }
 
+  const handleOpenTemplateDialog = () => {
+    setTemplateDialogOpen(true)
+    setTemplateError('')
+    setTemplateSearch('')
+    setSelectedTemplateId(form.templateId || null)
+  }
+
+  const handleCloseTemplateDialog = () => {
+    setTemplateDialogOpen(false)
+    setTemplateError('')
+    setTemplateSearch('')
+  }
+
+  const handleApplyTemplate = async () => {
+    if (!selectedTemplateId) {
+      setTemplateError('Select a template to apply.')
+      return
+    }
+
+    const selectedTemplate = templateOptions.find(
+      (template) => String(resolveTemplateId(template)) === String(selectedTemplateId)
+    )
+    if (!selectedTemplate) {
+      setTemplateError('Selected template was not found.')
+      return
+    }
+
+    setApplyingTemplate(true)
+    setTemplateError('')
+    try {
+      const appliedTemplateId = resolveTemplateId(selectedTemplate)
+      let templateEntity = selectedTemplate
+
+      try {
+        const detailPayload = await getTemplateById(appliedTemplateId)
+        templateEntity = resolveTemplateEntity(detailPayload) || selectedTemplate
+      } catch {
+        templateEntity = selectedTemplate
+      }
+
+      const appliedTemplateTitle =
+        resolveTemplateTitle(templateEntity) ||
+        resolveTemplateTitle(selectedTemplate) ||
+        `Template ${appliedTemplateId}`
+      const appliedSummary =
+        resolveTemplateSummary(templateEntity) || cleanLinkedText(selectedTemplate?.description || '')
+      const appliedActionItems = resolveTemplateActionItems(templateEntity)
+      const appliedOneTimeFees = resolveTemplateOneTimeFees(templateEntity)
+      const appliedRecurringFees = resolveTemplateRecurringFees(templateEntity)
+
+      setForm((prev) => ({
+        ...prev,
+        templateId: appliedTemplateId,
+        templateTitle: appliedTemplateTitle,
+        title: appliedTemplateTitle,
+        summary: appliedSummary,
+        actionItems: appliedActionItems,
+        oneTimeFees: appliedOneTimeFees,
+        recurringFees: appliedRecurringFees,
+      }))
+
+      if (form?.id) {
+        const templateMap = readInitiativeTemplateMap()
+        templateMap[String(form.id)] = {
+          templateId: appliedTemplateId,
+          templateTitle: appliedTemplateTitle,
+        }
+        writeInitiativeTemplateMap(templateMap)
+      }
+
+      setToast({
+        type: 'success',
+        message: `Template "${appliedTemplateTitle}" applied.`,
+      })
+      handleCloseTemplateDialog()
+    } catch {
+      setTemplateError('Unable to apply template. Please try again.')
+    } finally {
+      setApplyingTemplate(false)
+    }
+  }
+
   const handleSubmit = (event) => {
     event.preventDefault()
     if (!form.title.trim()) {
@@ -792,6 +1081,16 @@ const InitiativeDrawer = ({
         ? form.quarter
         : getQuarterFromDate(form.startDate)
       : null
+
+    if (form?.id && form.templateId) {
+      const templateMap = readInitiativeTemplateMap()
+      templateMap[String(form.id)] = {
+        templateId: form.templateId,
+        templateTitle: cleanLinkedText(form.templateTitle || ''),
+      }
+      writeInitiativeTemplateMap(templateMap)
+    }
+
     onSave({
       ...form,
       year: resolvedYear,
@@ -851,6 +1150,13 @@ const InitiativeDrawer = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={handleOpenTemplateDialog}
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Apply Template
+            </button>
+            <button
+              type="button"
               className="ml-2 text-gray-400 hover:text-gray-600"
               onClick={onClose}
               aria-label="Close"
@@ -867,15 +1173,15 @@ const InitiativeDrawer = ({
                 <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
                   <FiFlag /> STATUS
                 </label>
-                <select
+                <AppSelect
+                  options={STATUS_OPTIONS.map((status) => ({
+                    value: status,
+                    label: status,
+                  }))}
                   value={form.status}
-                  onChange={(event) => handleChange('status', event.target.value)}
-                  className="h-10 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm"
-                >
-                  {STATUS_OPTIONS.map((status) => (
-                    <option key={status}>{status}</option>
-                  ))}
-                </select>
+                  onChange={(nextValue) => handleChange('status', nextValue)}
+                  className="w-full"
+                />
               </div>
 
               <div className="space-y-3">
@@ -940,30 +1246,28 @@ const InitiativeDrawer = ({
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
-                        <select
+                        <AppSelect
+                          options={yearOptions.map((year) => ({
+                            value: year,
+                            label: String(year),
+                          }))}
                           value={form.year ?? ''}
-                          onChange={(event) => handleScheduleSelect(event.target.value, form.quarter)}
-                          className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm disabled:bg-gray-50 disabled:text-gray-500"
-                          disabled={!form.isScheduled}
-                      >
-                        {yearOptions.map((year) => (
-                          <option key={year} value={year}>
-                            {year}
-                          </option>
-                        ))}
-                      </select>
-                        <select
+                          onChange={(nextValue) => handleScheduleSelect(nextValue, form.quarter)}
+                          isDisabled={!form.isScheduled}
+                          className="w-full"
+                          size="sm"
+                        />
+                        <AppSelect
+                          options={QUARTERS.map((quarter) => ({
+                            value: quarter,
+                            label: quarter,
+                          }))}
                           value={form.quarter ?? ''}
-                          onChange={(event) => handleScheduleSelect(form.year, event.target.value)}
-                          className="h-9 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm disabled:bg-gray-50 disabled:text-gray-500"
-                          disabled={!form.isScheduled}
-                      >
-                        {QUARTERS.map((quarter) => (
-                          <option key={quarter} value={quarter}>
-                            {quarter}
-                          </option>
-                        ))}
-                      </select>
+                          onChange={(nextValue) => handleScheduleSelect(form.year, nextValue)}
+                          isDisabled={!form.isScheduled}
+                          className="w-full"
+                          size="sm"
+                        />
                     </div>
                   </div>
                 </div>
@@ -972,17 +1276,15 @@ const InitiativeDrawer = ({
                 <label className="text-sm font-semibold text-gray-700 inline-flex items-center gap-2">
                   <FiUser /> CONTACT
                 </label>
-                <select
+                <AppSelect
+                  options={CONTACTS.map((contact) => ({
+                    value: contact.id,
+                    label: contact.full_name,
+                  }))}
                   value={form.contactId ?? ''}
-                  onChange={(event) => handleChange('contactId', Number(event.target.value))}
-                  className="h-10 w-full rounded-md border border-gray-300 px-3 pr-8 text-sm"
-                >
-                  {CONTACTS.map((contact) => (
-                    <option key={contact.id} value={contact.id}>
-                      {contact.full_name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(nextValue) => handleChange('contactId', Number(nextValue))}
+                  className="w-full"
+                />
               </div>
             </section>
 
@@ -1160,23 +1462,25 @@ const InitiativeDrawer = ({
                                 <span className="text-[11px] font-medium text-gray-500">
                                   Frequency
                                 </span>
-                                <select
+                                <AppSelect
+                                  options={[
+                                    { value: 'monthly', label: 'Monthly' },
+                                    { value: 'yearly', label: 'Yearly' },
+                                  ]}
                                   value={fee.frequency || 'monthly'}
-                                  onChange={(event) =>
+                                  onChange={(nextValue) =>
                                     handleChange(
                                       'recurringFees',
                                       form.recurringFees.map((item) =>
                                         item.id === fee.id
-                                          ? { ...item, frequency: event.target.value }
+                                          ? { ...item, frequency: nextValue }
                                           : item
                                       )
                                     )
                                   }
-                                  className="h-9 w-full rounded-md border border-gray-300 px-2 pr-10 text-sm"
-                                >
-                                  <option value="monthly">Monthly</option>
-                                  <option value="yearly">Yearly</option>
-                                </select>
+                                  className="w-full"
+                                  size="sm"
+                                />
                               </div>
                               <div className="flex flex-col gap-1">
                                 <span className="text-[11px] font-medium text-gray-500">
@@ -1433,6 +1737,108 @@ const InitiativeDrawer = ({
             </button>
           </div>
         </div>
+
+        {templateDialogOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">Apply a new template</h3>
+                  <p className="mt-1 text-xs text-gray-500">
+                    This initiative&apos;s action, title, executive summary, and budget will be
+                    replaced by those in the template.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseTemplateDialog}
+                  className="rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-600 hover:bg-gray-50"
+                  aria-label="Close apply template dialog"
+                >
+                  <FiX />
+                </button>
+              </div>
+
+              <div className="space-y-4 px-5 py-4">
+                {templateError && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {templateError}
+                  </div>
+                )}
+
+                <input
+                  type="text"
+                  value={templateSearch}
+                  onChange={(event) => setTemplateSearch(event.target.value)}
+                  placeholder="Search templates..."
+                  className="h-10 w-full rounded-md border border-gray-300 px-3 text-sm text-gray-700 placeholder:text-gray-400"
+                />
+
+                <div className="max-h-72 overflow-auto rounded-md border border-gray-200">
+                  {loadingTemplates ? (
+                    <div className="px-3 py-3 text-sm text-gray-500">Loading templates...</div>
+                  ) : filteredTemplateOptions.length === 0 ? (
+                    <div className="px-3 py-3 text-sm text-gray-500">No templates found.</div>
+                  ) : (
+                    <div className="divide-y divide-gray-200">
+                      {filteredTemplateOptions.map((template) => {
+                        const templateId = resolveTemplateId(template)
+                        const title = resolveTemplateTitle(template) || `Template ${templateId}`
+                        const description = cleanLinkedText(template?.description || '')
+                        const isSelected =
+                          String(selectedTemplateId || '') === String(templateId || '')
+                        return (
+                          <button
+                            key={String(templateId)}
+                            type="button"
+                            onClick={() => setSelectedTemplateId(templateId)}
+                            className={`w-full px-3 py-2 text-left border-l-2 transition-colors ${
+                              isSelected
+                                ? 'border-l-[rgb(5,117,204)] bg-[rgb(236,245,255)]'
+                                : 'border-l-transparent bg-white hover:bg-gray-50'
+                            }`}
+                            aria-pressed={isSelected}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="text-sm font-semibold text-gray-900">{title}</div>
+                              {isSelected ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(5,117,204)]/10 px-2 py-0.5 text-[11px] font-semibold text-[rgb(5,117,204)]">
+                                  <FiCheck className="h-3 w-3" />
+                                  Selected
+                                </span>
+                              ) : null}
+                            </div>
+                            {description ? (
+                              <div className="mt-1 text-xs text-gray-500">{description}</div>
+                            ) : null}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-5 py-4">
+                <button
+                  type="button"
+                  onClick={handleCloseTemplateDialog}
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyTemplate}
+                  disabled={!selectedTemplateId || applyingTemplate}
+                  className="rounded-md bg-[rgb(5,117,204)] px-4 py-2 text-sm font-medium text-white hover:bg-[rgb(0,97,170)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {applyingTemplate ? 'Applying...' : 'Apply Template'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <ToastMessage toast={toast} onClose={() => setToast(null)} />
       </form>
     </div>

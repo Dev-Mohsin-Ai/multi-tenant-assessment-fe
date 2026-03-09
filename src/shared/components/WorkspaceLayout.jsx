@@ -8,6 +8,7 @@ import { FaUsers } from "react-icons/fa6";
 import { SiRoadmapdotsh } from 'react-icons/si'
 import { HiTemplate } from "react-icons/hi";
 import { FiTarget } from 'react-icons/fi'
+import { RiAdminLine } from 'react-icons/ri'
 
 const WorkspaceLayout = ({
   children,
@@ -28,6 +29,7 @@ const WorkspaceLayout = ({
       { id: 'roadmap', label: 'Roadmap', icon: <SiRoadmapdotsh />, path: '/roadmap' },
       { id: 'goals', label: 'Goals', icon: <FiTarget />, path: '/goals' },
       { id: 'templates', label: 'Templates', icon: <HiTemplate />, iconSize: 26, path: templatesPath },
+      { id: 'admin', label: 'Admin', icon: <RiAdminLine />, path: '/admin' },
     ],
     [assessmentsPath, clientsPath, templatesPath]
   )

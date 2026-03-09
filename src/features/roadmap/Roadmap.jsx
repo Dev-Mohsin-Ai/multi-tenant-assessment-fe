@@ -20,15 +20,14 @@ import {
 import {
   createInitiative,
   deleteInitiative,
-  getInitiativeById,
   getInitiatives,
-  linkSubcategories,
   updateInitiative,
 } from '../../shared/services/initiativeService'
 import { downloadInitiativesRoadmapPdf } from '../../shared/services/reportService'
 import { mapInitiativeFromApi, mapInitiativeToApi } from './initiativeMapper'
 import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
+import AppSelect from '../../shared/components/AppSelect'
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
@@ -259,6 +258,32 @@ const Roadmap = () => {
     )
     return Array.from({ length: maxYear - minYear + 1 }, (_, index) => minYear + index)
   }, [currentYear, initiatives])
+  const statusFilterOptions = [
+    { value: 'All', label: 'All status' },
+    ...STATUS_OPTIONS.map((status) => ({ value: status, label: status })),
+  ]
+  const priorityFilterOptions = [
+    { value: 'All', label: 'All priority' },
+    ...PRIORITY_OPTIONS.map((priority) => ({
+      value: priority.value,
+      label: priority.label,
+    })),
+  ]
+  const pocFilterOptions = [
+    { value: 'All', label: 'All poc' },
+    ...CONTACTS.map((contact) => ({
+      value: String(contact.id),
+      label: contact.full_name,
+    })),
+  ]
+  const exportYearSelectOptions = exportYearOptions.map((year) => ({
+    value: year,
+    label: String(year),
+  }))
+  const quarterSelectOptions = QUARTERS.map((quarter) => ({
+    value: quarter,
+    label: quarter,
+  }))
 
   useEffect(() => {
     if (!toast) {
@@ -279,16 +304,7 @@ const Roadmap = () => {
     try {
       const data = await getInitiatives({ organization_id: organizationId })
       const list = Array.isArray(data) ? data : data?.initiatives || []
-      const detailed = await Promise.all(
-        list.map(async (item) => {
-          try {
-            return await getInitiativeById(item.id)
-          } catch {
-            return item
-          }
-        })
-      )
-      setInitiatives(detailed.map((item) => mapInitiativeFromApi(item)))
+      setInitiatives(list.map((item) => mapInitiativeFromApi(item)))
     } catch {
       setLoadError('Unable to load initiatives')
     } finally {
@@ -702,13 +718,6 @@ const Roadmap = () => {
       const mapped = mapInitiativeFromApi(created, {
         linkedItemsById: { [created.id]: payload.linkedItems || [] },
       })
-      if (pendingLink?.subcategoryId && created?.id) {
-        try {
-          await linkSubcategories(created.id, [pendingLink.subcategoryId])
-        } catch {
-          // keep local link even if API link fails
-        }
-      }
       if (pendingLink) {
         const pendingResponseKey = pendingLink.responseId || pendingLink.subcategoryId
         const linkEntry = {
@@ -738,6 +747,18 @@ const Roadmap = () => {
         localStorage.setItem(INITIATIVE_LINKS_KEY, JSON.stringify(links))
         localStorage.removeItem(PENDING_LINK_KEY)
         setPendingLink(null)
+      }
+      if (pendingLink && mapped?.id) {
+        try {
+          await updateInitiative(
+            mapped.id,
+            mapInitiativeToApi(mapped, organizationId, {
+              goalId: mapped?.goalId ?? payload?.goalId,
+            })
+          )
+        } catch {
+          // keep local link even if API update fails
+        }
       }
       setInitiatives((prev) => [mapped, ...prev])
       handleCloseDrawer()
@@ -1343,48 +1364,33 @@ const Roadmap = () => {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-2">
           <label className="text-sm font-semibold text-gray-700">Status</label>
-          <select
+          <AppSelect
+            options={statusFilterOptions}
             value={filters.status}
-            onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
-            className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700 bg-white"
-          >
-            <option value="All">All status</option>
-            {STATUS_OPTIONS.map((status) => (
-              <option key={status}>{status}</option>
-            ))}
-          </select>
+            onChange={(nextValue) =>
+              setFilters((prev) => ({ ...prev, status: String(nextValue || 'All') }))
+            }
+          />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-semibold text-gray-700">Priority</label>
-          <select
+          <AppSelect
+            options={priorityFilterOptions}
             value={filters.priority}
-            onChange={(event) =>
-              setFilters((prev) => ({ ...prev, priority: event.target.value }))
+            onChange={(nextValue) =>
+              setFilters((prev) => ({ ...prev, priority: String(nextValue || 'All') }))
             }
-            className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700 bg-white"
-          >
-            <option value="All">All priority</option>
-            {PRIORITY_OPTIONS.map((priority) => (
-              <option key={priority.value} value={priority.value}>
-                {priority.label}
-              </option>
-            ))}
-          </select>
+          />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-semibold text-gray-700">POC</label>
-          <select
+          <AppSelect
+            options={pocFilterOptions}
             value={filters.poc}
-            onChange={(event) => setFilters((prev) => ({ ...prev, poc: event.target.value }))}
-            className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700 bg-white"
-          >
-            <option value="All">All poc</option>
-            {CONTACTS.map((contact) => (
-              <option key={contact.id} value={contact.id}>
-                {contact.full_name}
-              </option>
-            ))}
-          </select>
+            onChange={(nextValue) =>
+              setFilters((prev) => ({ ...prev, poc: String(nextValue || 'All') }))
+            }
+          />
         </div>
       </div>
       {loadError && (
@@ -1632,59 +1638,43 @@ const Roadmap = () => {
             <div className="grid gap-4 px-5 py-5 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-700">From Year</label>
-                <select
+                <AppSelect
+                  options={exportYearSelectOptions}
                   value={exportTenure.fromYear}
-                  onChange={(event) => handleExportTenureChange('fromYear', Number(event.target.value))}
-                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700"
-                >
-                  {exportYearOptions.map((year) => (
-                    <option key={`from-year-${year}`} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(nextValue) =>
+                    handleExportTenureChange('fromYear', Number(nextValue))
+                  }
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-700">From Quarter</label>
-                <select
+                <AppSelect
+                  options={quarterSelectOptions}
                   value={exportTenure.fromQuarter}
-                  onChange={(event) => handleExportTenureChange('fromQuarter', event.target.value)}
-                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700"
-                >
-                  {QUARTERS.map((quarter) => (
-                    <option key={`from-quarter-${quarter}`} value={quarter}>
-                      {quarter}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(nextValue) =>
+                    handleExportTenureChange('fromQuarter', String(nextValue || ''))
+                  }
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-700">To Year</label>
-                <select
+                <AppSelect
+                  options={exportYearSelectOptions}
                   value={exportTenure.toYear}
-                  onChange={(event) => handleExportTenureChange('toYear', Number(event.target.value))}
-                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700"
-                >
-                  {exportYearOptions.map((year) => (
-                    <option key={`to-year-${year}`} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(nextValue) =>
+                    handleExportTenureChange('toYear', Number(nextValue))
+                  }
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-700">To Quarter</label>
-                <select
+                <AppSelect
+                  options={quarterSelectOptions}
                   value={exportTenure.toQuarter}
-                  onChange={(event) => handleExportTenureChange('toQuarter', event.target.value)}
-                  className="h-10 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700"
-                >
-                  {QUARTERS.map((quarter) => (
-                    <option key={`to-quarter-${quarter}`} value={quarter}>
-                      {quarter}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(nextValue) =>
+                    handleExportTenureChange('toQuarter', String(nextValue || ''))
+                  }
+                />
               </div>
               <label className="inline-flex items-center gap-2 text-sm text-gray-700 md:col-span-2">
                 <input
@@ -1816,22 +1806,24 @@ const InitiativeCard = ({
         </div>
       </div>
       <div className="mt-3">
-        <select
-          value={initiative.status}
+        <div
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.stopPropagation()}
-          onChange={(event) => {
-            event.stopPropagation()
-            if (onStatusChange) {
-              onStatusChange(event.target.value)
-            }
-          }}
-          className="h-9 w-full rounded-md border border-gray-200 px-3 pr-8 text-sm text-gray-700"
         >
-          {STATUS_OPTIONS.map((status) => (
-            <option key={status}>{status}</option>
-          ))}
-        </select>
+          <AppSelect
+            options={STATUS_OPTIONS.map((status) => ({
+              value: status,
+              label: status,
+            }))}
+            value={initiative.status}
+            onChange={(nextValue) => {
+              if (onStatusChange) {
+                onStatusChange(nextValue)
+              }
+            }}
+            size="sm"
+          />
+        </div>
       </div>
       <div className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-600">
         <div className="flex items-center justify-between">

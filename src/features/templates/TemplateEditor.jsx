@@ -9,6 +9,7 @@ import {
   FiTrash2,
 } from 'react-icons/fi'
 import { formatResponseLabel, getResponseBadgeClass } from './templateUtils'
+import AppSelect from '../../shared/components/AppSelect'
 
 const TemplateEditor = (props) => {
   const {
@@ -42,8 +43,8 @@ const TemplateEditor = (props) => {
   return (
     <div className="max-w-6xl mx-auto">
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-          <div className="flex-1">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end mb-4">
+          <div>
             <label className="text-sm font-medium text-gray-700 mb-2 block">
               Template Title
             </label>
@@ -55,6 +56,20 @@ const TemplateEditor = (props) => {
               }
               className="w-full h-11 px-4 rounded-md border border-gray-300 text-lg font-semibold focus:outline-none transition-all duration-200"
               placeholder="Enter template name..."
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">
+              Description
+            </label>
+            <input
+              type="text"
+              value={formData.description || ''}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, description: e.target.value }))
+              }
+              className="w-full h-11 px-4 rounded-md border border-gray-300 text-sm focus:outline-none transition-all duration-200"
+              placeholder="Enter template description..."
             />
           </div>
           <div className="flex items-center gap-2">
@@ -77,35 +92,40 @@ const TemplateEditor = (props) => {
               </button>
             )}
           </div>
-          {autoSaveStatus && (
-            <p className="w-full text-right text-xs text-gray-500">{autoSaveStatus}</p>
-          )}
         </div>
 
-        <div
-          className={`rounded-md border px-4 py-3 ${
-            totalCategoryWeight === 100
-              ? 'border-gray-200 bg-gray-50'
-              : 'border-red-300 bg-red-50'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">
-              Total Category Weight
-            </span>
-            <span
-              className={`text-sm font-semibold ${
-                totalCategoryWeight === 100 ? 'text-gray-900' : 'text-red-600'
-              }`}
-            >
-              {totalCategoryWeight}%
-            </span>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div
+            className={`rounded-md border px-4 py-3 ${
+              totalCategoryWeight === 100
+                ? 'border-gray-200 bg-gray-50'
+                : 'border-red-300 bg-red-50'
+            }`}
+          >
+            <div className="flex items-center justify-center gap-3 text-center">
+              <span className="text-sm font-medium text-gray-700">
+                Total Weight Category
+              </span>
+              <span
+                className={`text-sm font-semibold ${
+                  totalCategoryWeight === 100 ? 'text-gray-900' : 'text-red-600'
+                }`}
+              >
+                {totalCategoryWeight}%
+              </span>
+            </div>
+            {totalCategoryWeight !== 100 && (
+              <p className="mt-2 text-center text-xs text-red-600">
+                Category weights must sum to 100%.
+              </p>
+            )}
           </div>
-          {totalCategoryWeight !== 100 && (
-            <p className="mt-2 text-xs text-red-600">
-              Category weights must sum to 100%.
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-center">
+            <div className="text-sm font-medium text-gray-700">Auto-save</div>
+            <p className="mt-1 text-xs text-gray-500">
+              {autoSaveStatus || 'Auto-save runs every 30 seconds.'}
             </p>
-          )}
+          </div>
         </div>
       </div>
 
@@ -418,60 +438,19 @@ const TemplateEditor = (props) => {
                                       <div className="grid grid-cols-1 md:grid-cols-3 gap-2 bg-[rgb(248,248,250)] p-3 rounded-md border border-gray-200">
                                         <div>
                                           <label className="text-[10px] font-medium text-gray-600 mb-1 block">
-                                            Scoring Instructions
-                                          </label>
-                                          <input
-                                            type="text"
-                                            value={subcategory.scoring_instructions}
-                                            onChange={(e) =>
-                                              updateSubcategory(
-                                                catIndex,
-                                                subIndex,
-                                                'scoring_instructions',
-                                                e.target.value
-                                              )
-                                            }
-                                            className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
-                                            placeholder="Scoring instructions"
-                                          />
-                                        </div>
-                                        <div>
-                                          <label className="text-[10px] font-medium text-gray-600 mb-1 block">
-                                            Remediation Tips
-                                          </label>
-                                          <input
-                                            type="text"
-                                            value={subcategory.remediation_tips}
-                                            onChange={(e) =>
-                                              updateSubcategory(
-                                                catIndex,
-                                                subIndex,
-                                                'remediation_tips',
-                                                e.target.value
-                                              )
-                                            }
-                                            className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
-                                            placeholder="Remediation tips"
-                                          />
-                                        </div>
-                                        <div>
-                                          <label className="text-[10px] font-medium text-gray-600 mb-1 block">
                                             Type
                                           </label>
-                                          <select
+                                          <AppSelect
+                                            options={[
+                                              { value: 'yes_no', label: 'Yes/No' },
+                                              { value: 'multi_response', label: 'Multi Response' },
+                                            ]}
                                             value={subcategory.type}
-                                            onChange={(e) =>
-                                              handleSubcategoryTypeChange(
-                                                catIndex,
-                                                subIndex,
-                                                e.target.value
-                                              )
+                                            onChange={(nextValue) =>
+                                              handleSubcategoryTypeChange(catIndex, subIndex, nextValue)
                                             }
-                                            className="w-full h-9 px-2 rounded border border-gray-300 bg-white text-xs focus:outline-none transition-all duration-200"
-                                          >
-                                            <option value="yes_no">Yes/No</option>
-                                            <option value="multi_response">Multi Response</option>
-                                          </select>
+                                            size="sm"
+                                          />
                                         </div>
                                       </div>
                                     </>

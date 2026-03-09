@@ -10,6 +10,7 @@ import ReadOnlyAssessmentPage from '../features/assessments/ReadOnlyAssessmentPa
 import TemplatesPage from '../features/templates/TemplatesPage'
 import RoadmapPage from '../features/roadmap/RoadmapPage'
 import GoalsPage from '../features/goals/GoalsPage'
+import AdminPage from '../features/admin/AdminPage'
 import { useAppStore } from '../shared/store/useAppStore'
 
 const RequireAuth = ({ children }) => {
@@ -105,6 +106,14 @@ const App = () => {
               <RequireClient>
                 <ReadOnlyAssessmentPage />
               </RequireClient>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path='/admin'
+          element={
+            <RequireAuth>
+              <AdminPage />
             </RequireAuth>
           }
         />

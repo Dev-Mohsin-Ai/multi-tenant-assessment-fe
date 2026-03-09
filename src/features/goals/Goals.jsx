@@ -11,6 +11,7 @@ import {
   FiX,
 } from 'react-icons/fi'
 import InitiativeDrawer from '../roadmap/InitiativeDrawer'
+import AppSelect from '../../shared/components/AppSelect'
 import {
   createInitiative,
   deleteInitiative,
@@ -88,6 +89,37 @@ const Goals = () => {
     [currentYear]
   )
   const scheduleOptions = useMemo(() => buildScheduleOptions(yearOptions), [yearOptions])
+  const statusFilterOptions = [
+    { value: 'All status', label: 'All status' },
+    { value: 'On Track', label: 'On Track' },
+    { value: 'At Risk', label: 'At Risk' },
+    { value: 'Off Track', label: 'Off Track' },
+    { value: 'Completed', label: 'Completed' },
+  ]
+  const yearFilterOptions = [
+    { value: 'All year', label: 'All year' },
+    ...yearOptions.map((year) => ({ value: year, label: String(year) })),
+  ]
+  const periodFilterOptions = [
+    { value: 'All period', label: 'All period' },
+    ...QUARTERS.map((quarter) => ({ value: quarter, label: quarter })),
+  ]
+  const initiativeStatusOptions = STATUS_OPTIONS.map((status) => ({
+    value: status,
+    label: status,
+  }))
+  const initiativePriorityOptions = PRIORITY_OPTIONS.map((priority) => ({
+    value: priority.value,
+    label: priority.display,
+  }))
+  const scheduleFilterOptions = [
+    { value: NOT_SCHEDULED_LABEL, label: NOT_SCHEDULED_LABEL },
+    ...scheduleOptions.map((label) => ({ value: label, label })),
+  ]
+  const contactOptions = CONTACTS.map((contact) => ({
+    value: contact.id,
+    label: contact.full_name,
+  }))
 
   const [filters, setFilters] = useState({
     status: 'All status',
@@ -1122,52 +1154,35 @@ const Goals = () => {
           <div className="flex flex-wrap items-end gap-6">
             <div className="space-y-2">
               <div className="text-sm font-semibold text-gray-900">Status</div>
-              <select
+              <AppSelect
+                options={statusFilterOptions}
                 value={filters.status}
-                onChange={(event) =>
-                  setFilters((prev) => ({ ...prev, status: event.target.value }))
+                onChange={(nextValue) =>
+                  setFilters((prev) => ({ ...prev, status: String(nextValue || 'All status') }))
                 }
-                className="h-10 w-80 max-w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-              >
-                <option>All status</option>
-                <option>On Track</option>
-                <option>At Risk</option>
-                <option>Off Track</option>
-                <option>Completed</option>
-              </select>
+                className="w-80 max-w-full"
+              />
             </div>
 
             <div className="space-y-2">
               <div className="text-sm font-semibold text-gray-900">Target Period</div>
               <div className="flex flex-wrap items-center gap-3">
-                <select
+                <AppSelect
+                  options={yearFilterOptions}
                   value={filters.year}
-                  onChange={(event) =>
-                    setFilters((prev) => ({ ...prev, year: event.target.value }))
+                  onChange={(nextValue) =>
+                    setFilters((prev) => ({ ...prev, year: nextValue ?? 'All year' }))
                   }
-                  className="h-10 w-48 rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                >
-                  <option>All year</option>
-                  {yearOptions.map((year) => (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
-                <select
+                  className="w-48"
+                />
+                <AppSelect
+                  options={periodFilterOptions}
                   value={filters.period}
-                  onChange={(event) =>
-                    setFilters((prev) => ({ ...prev, period: event.target.value }))
+                  onChange={(nextValue) =>
+                    setFilters((prev) => ({ ...prev, period: String(nextValue || 'All period') }))
                   }
-                  className="h-10 w-48 rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                >
-                  <option>All period</option>
-                  {QUARTERS.map((quarter) => (
-                    <option key={quarter} value={quarter}>
-                      {quarter}
-                    </option>
-                  ))}
-                </select>
+                  className="w-48"
+                />
                 <button
                   type="button"
                   onClick={handleClearAll}
@@ -1230,7 +1245,7 @@ const Goals = () => {
                   {isExpanded ? <FiChevronUp /> : <FiChevronDown />}
                 </span>
                 <div className="inline-flex items-center gap-3">
-                  <div className="text-2xl font-semibold text-gray-900">{goal.title}</div>
+                  <div className="text-xl font-semibold text-gray-900">{goal.title}</div>
                   <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-gray-100 px-2 text-sm text-gray-700">
                     {linkedInitiatives.length}
                   </span>
@@ -1329,27 +1344,23 @@ const Goals = () => {
                                 </button>
                               </td>
                               <td className="px-4 py-4 align-middle">
-                                <select
+                                <AppSelect
+                                  options={initiativeStatusOptions}
                                   value={statusValue}
-                                  onChange={(event) =>
+                                  onChange={(nextValue) =>
                                     handlePersistInitiativePatch(goal.id, initiative.id, {
-                                      status: event.target.value,
+                                      status: nextValue,
                                     })
                                   }
-                                  className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                                >
-                                  {STATUS_OPTIONS.map((status) => (
-                                    <option key={status} value={status}>
-                                      {status}
-                                    </option>
-                                  ))}
-                                </select>
+                                  className="w-full"
+                                />
                               </td>
                               <td className="px-4 py-4 align-middle">
-                                <select
+                                <AppSelect
+                                  options={scheduleFilterOptions}
                                   value={scheduleValue}
-                                  onChange={(event) => {
-                                    const selected = String(event.target.value)
+                                  onChange={(nextValue) => {
+                                    const selected = String(nextValue || '')
                                     if (selected === NOT_SCHEDULED_LABEL) {
                                       handlePersistInitiativePatch(goal.id, initiative.id, {
                                         isScheduled: false,
@@ -1367,35 +1378,23 @@ const Goals = () => {
                                       isScheduled: true,
                                     })
                                   }}
-                                  className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                                >
-                                  <option value={NOT_SCHEDULED_LABEL}>{NOT_SCHEDULED_LABEL}</option>
-                                  {scheduleOptions.map((label) => (
-                                    <option key={label} value={label}>
-                                      {label}
-                                    </option>
-                                  ))}
-                                </select>
+                                  className="w-full"
+                                />
                               </td>
                               <td className="px-4 py-4 align-middle text-sm text-gray-900">
                                 {contactName}
                               </td>
                               <td className="px-4 py-4 align-middle">
-                                <select
+                                <AppSelect
+                                  options={initiativePriorityOptions}
                                   value={priorityValue}
-                                  onChange={(event) =>
+                                  onChange={(nextValue) =>
                                     handlePersistInitiativePatch(goal.id, initiative.id, {
-                                      priority: event.target.value,
+                                      priority: nextValue,
                                     })
                                   }
-                                  className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700"
-                                >
-                                  {PRIORITY_OPTIONS.map((priority) => (
-                                    <option key={priority.value} value={priority.value}>
-                                      {priority.display}
-                                    </option>
-                                  ))}
-                                </select>
+                                  className="w-full"
+                                />
                               </td>
                               <td className="px-4 py-4 align-middle">
                                 <div className="relative flex items-center justify-end">
@@ -1667,22 +1666,17 @@ const Goals = () => {
                     </div>
                     <div className="space-y-2">
                       <div className="text-sm font-semibold text-gray-900">POC</div>
-                      <select
+                      <AppSelect
+                        options={contactOptions}
                         value={dialogState.newInitiativePocId}
-                        onChange={(event) =>
+                        onChange={(nextValue) =>
                           setDialogState((prev) => ({
                             ...prev,
-                            newInitiativePocId: Number(event.target.value),
+                            newInitiativePocId: Number(nextValue),
                           }))
                         }
-                        className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-700"
-                      >
-                        {CONTACTS.map((contact) => (
-                          <option key={contact.id} value={contact.id}>
-                            {contact.full_name}
-                          </option>
-                        ))}
-                      </select>
+                        className="w-full"
+                      />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -1729,40 +1723,38 @@ const Goals = () => {
                         )}
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        <select
+                        <AppSelect
+                          options={yearOptions.map((year) => ({
+                            value: year,
+                            label: String(year),
+                          }))}
                           value={dialogState.newInitiativeYear}
-                          onChange={(event) =>
+                          onChange={(nextValue) =>
                             setDialogState((prev) => ({
                               ...prev,
-                              newInitiativeYear: Number(event.target.value),
+                              newInitiativeYear: Number(nextValue),
                             }))
                           }
-                          disabled={!dialogState.newInitiativeIsScheduled}
-                          className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 disabled:bg-gray-50 disabled:text-gray-500"
-                        >
-                          {yearOptions.map((year) => (
-                            <option key={year} value={year}>
-                              {year}
-                            </option>
-                          ))}
-                        </select>
-                        <select
+                          isDisabled={!dialogState.newInitiativeIsScheduled}
+                          className="w-full"
+                          size="sm"
+                        />
+                        <AppSelect
+                          options={QUARTERS.map((quarter) => ({
+                            value: quarter,
+                            label: quarter,
+                          }))}
                           value={dialogState.newInitiativeQuarter}
-                          onChange={(event) =>
+                          onChange={(nextValue) =>
                             setDialogState((prev) => ({
                               ...prev,
-                              newInitiativeQuarter: event.target.value,
+                              newInitiativeQuarter: nextValue,
                             }))
                           }
-                          disabled={!dialogState.newInitiativeIsScheduled}
-                          className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 disabled:bg-gray-50 disabled:text-gray-500"
-                        >
-                          {QUARTERS.map((quarter) => (
-                            <option key={quarter} value={quarter}>
-                              {quarter}
-                            </option>
-                          ))}
-                        </select>
+                          isDisabled={!dialogState.newInitiativeIsScheduled}
+                          className="w-full"
+                          size="sm"
+                        />
                       </div>
                     </div>
                   </div>

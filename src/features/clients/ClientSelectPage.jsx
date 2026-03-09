@@ -81,7 +81,7 @@ const ClientSelectPage = () => {
                 Client-specific data
               </p>
               <p className="mt-1">
-                Assessments, initiatives, and templates are scoped per client.
+                Assessments and initiatives are client-scoped, while templates are shared.
               </p>
             </div>
             <div className="rounded-md border border-gray-200 bg-white px-4 py-3">

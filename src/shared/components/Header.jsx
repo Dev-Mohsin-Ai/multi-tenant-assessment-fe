@@ -9,6 +9,7 @@ const Header = () => {
   const clearActiveOrganization = useAppStore((state) => state.clearActiveOrganization)
   const hasToken = Boolean(localStorage.getItem('token'))
   const showLogout = hasToken && location.pathname.startsWith('/clients/select')
+  const showAdmin = hasToken
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -28,15 +29,26 @@ const Header = () => {
             Atlas
           </div>
         </div>
-        {showLogout ? (
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
-          >
-            Logout
-          </button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {showAdmin ? (
+            <button
+              type="button"
+              onClick={() => navigate('/admin')}
+              className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+            >
+              Admin
+            </button>
+          ) : null}
+          {showLogout ? (
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+            >
+              Logout
+            </button>
+          ) : null}
+        </div>
       </div>
     </header>
   )

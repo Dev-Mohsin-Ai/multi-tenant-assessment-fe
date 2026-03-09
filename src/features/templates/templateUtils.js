@@ -68,6 +68,7 @@ export const createSubcategory = (weight = 0) => ({
 export const normalizeTemplate = (template) => ({
   id: template?.id,
   title: template?.title || template?.name || '',
+  description: template?.description || '',
   categories: (template?.categories || []).map((category) => ({
     title: category?.title || '',
     description: category?.description || '',
@@ -99,6 +100,7 @@ export const normalizeTemplate = (template) => ({
 
 export const buildPayload = (template) => ({
   title: template.title.trim(),
+  description: String(template.description || '').trim(),
   categories: template.categories.map((category, categoryIndex) => ({
     title: category.title.trim(),
     description: category.description || '',

@@ -1,8 +1,5 @@
 import React from 'react';
 import HeaderLogo from '../../assets/HeaderLogo.png'
-import { FaGear } from "react-icons/fa6";
-import { FaBell } from "react-icons/fa";
-import Navbar from './Navbar';
 import { useNavigate } from 'react-router-dom';
 
 const DashboardHeader = () => {
@@ -33,6 +30,13 @@ const DashboardHeader = () => {
         </div>
         <button
           type="button"
+          onClick={() => navigate('/admin')}
+          className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+        >
+          Admin
+        </button>
+        <button
+          type="button"
           onClick={handleLogout}
           className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
         >
@@ -42,7 +46,7 @@ const DashboardHeader = () => {
 
       {/* Desktop row (original layout) */}
       <div className="hidden md:flex justify-between items-center h-12">
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-1.5">
           <div className="h-9 w-9 shrink-0">
             <img
               src={HeaderLogo}
@@ -57,15 +61,16 @@ const DashboardHeader = () => {
           >
             Atlas
           </h1>
-
-          <div className="flex-1 min-w-0">
-            <Navbar />
-          </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <FaBell className="text-[rgb(182,183,195)] cursor-pointer text-base" />
-          <FaGear className="text-[rgb(182,183,195)] cursor-pointer text-base" />
+          <button
+            type="button"
+            onClick={() => navigate('/admin')}
+            className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+          >
+            Admin
+          </button>
           <button
             type="button"
             onClick={handleLogout}
