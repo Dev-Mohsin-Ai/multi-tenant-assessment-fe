@@ -1578,13 +1578,17 @@ const PerformAssessment = ({
                     : 'No comments'
                   return (
                     <div className="flex items-center justify-center">
-                      <span
-                        title={`Comments: ${commentTypeLabel}`}
-                        aria-label={`Comments: ${commentTypeLabel}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500"
-                      >
-                        <FiMessageSquare className="text-sm" />
-                      </span>
+                      <div className="group relative inline-flex">
+                        <span
+                          aria-label={`Comments: ${commentTypeLabel}`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500"
+                        >
+                          <FiMessageSquare className="text-sm" />
+                        </span>
+                        <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-max -translate-x-1/2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                          {commentTypeLabel}
+                        </div>
+                      </div>
                     </div>
                   )
                 })()}

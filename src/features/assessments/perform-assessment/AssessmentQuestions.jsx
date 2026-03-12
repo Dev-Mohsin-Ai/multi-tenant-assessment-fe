@@ -1,10 +1,15 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
+  FiCheck,
   FiChevronDown,
   FiChevronUp,
+  FiEdit2,
   FiList,
   FiLayers,
   FiMessageSquare,
+  FiRefreshCw,
+  FiTrash2,
+  FiX,
 } from 'react-icons/fi'
 
 const AssessmentQuestions = ({
@@ -29,6 +34,7 @@ const AssessmentQuestions = ({
   getBadgeClasses,
 }) => {
   const [commentUiByItem, setCommentUiByItem] = useState({})
+  const commentInputRefs = useRef({})
 
   const getCommentUi = (itemId) =>
     commentUiByItem[itemId] || {
@@ -127,6 +133,26 @@ const AssessmentQuestions = ({
       },
     }))
   }
+
+  useEffect(() => {
+    Object.entries(commentUiByItem).forEach(([itemId, ui]) => {
+      if (!ui?.open || !ui?.isEditing || !ui?.type) {
+        return
+      }
+      const key = `${itemId}:${ui.type}`
+      const input = commentInputRefs.current[key]
+      if (!input) {
+        return
+      }
+      window.requestAnimationFrame(() => {
+        input.focus()
+        const length = input.value?.length ?? 0
+        if (typeof input.setSelectionRange === 'function') {
+          input.setSelectionRange(length, length)
+        }
+      })
+    })
+  }, [commentUiByItem])
 
   return (
     <>
@@ -323,9 +349,11 @@ const AssessmentQuestions = ({
                                             <button
                                               type="button"
                                               onClick={() => handleCommentEdit(item.id)}
-                                              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                              title="Edit comment"
+                                              aria-label="Edit comment"
                                             >
-                                              Edit
+                                              <FiEdit2 className="h-3.5 w-3.5" />
                                             </button>
                                             <button
                                               type="button"
@@ -349,9 +377,11 @@ const AssessmentQuestions = ({
                                                 }
                                               }}
                                               disabled={isSavingComment || isCompleted || isReadOnly}
-                                              className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                              title="Delete comment"
+                                              aria-label="Delete comment"
                                             >
-                                              Delete
+                                              <FiTrash2 className="h-3.5 w-3.5" />
                                             </button>
                                           </div>
                                         </div>
@@ -365,7 +395,14 @@ const AssessmentQuestions = ({
                                         </label>
                                         <textarea
                                           key={`comment-${item.id}-${commentUi.type}`}
-                                          autoFocus={commentUi.isEditing}
+                                          ref={(node) => {
+                                            const key = `${item.id}:${commentUi.type}`
+                                            if (node) {
+                                              commentInputRefs.current[key] = node
+                                            } else {
+                                              delete commentInputRefs.current[key]
+                                            }
+                                          }}
                                           value={
                                             commentUi.type === 'publicComment'
                                               ? item.publicComment || ''
@@ -402,9 +439,11 @@ const AssessmentQuestions = ({
                                                 },
                                               }))
                                             }
-                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                            title="Change comment type"
+                                            aria-label="Change comment type"
                                           >
-                                            Change Type
+                                            <FiRefreshCw className="h-3.5 w-3.5" />
                                           </button>
                                           <button
                                             type="button"
@@ -429,9 +468,11 @@ const AssessmentQuestions = ({
                                               isReadOnly ||
                                               selectedCommentValue.trim().length === 0
                                             }
-                                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                            title="Save comment"
+                                            aria-label="Save comment"
                                           >
-                                            Save Comment
+                                            <FiCheck className="h-4 w-4" />
                                           </button>
                                           <button
                                             type="button"
@@ -447,9 +488,11 @@ const AssessmentQuestions = ({
                                                 },
                                               }))
                                             }}
-                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                            title="Cancel editing"
+                                            aria-label="Cancel editing"
                                           >
-                                            Cancel
+                                            <FiX className="h-4 w-4" />
                                           </button>
                                         </div>
                                       </div>

@@ -15,6 +15,11 @@ export async function getOrganizationById(organizationId) {
     return response.data;
 }
 
+export async function getOrganizationUsers(organizationId) {
+    const response = await api.get(`/organizations/${organizationId}/users`);
+    return response.data;
+}
+
 export async function updateOrganization(organizationId, payload) {
     const response = await api.put(`/organizations/${organizationId}`, payload);
     return response.data;

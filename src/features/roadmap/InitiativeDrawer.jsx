@@ -30,12 +30,14 @@ import {
   getInitiativeTemplateById,
   getInitiativeTemplates,
   saveInitiativeAsTemplate,
+  updateInitiative,
 } from '../../shared/services/initiativeService'
 import { getAssessmentById } from '../../shared/services/assessmentService'
 import { downloadInitiativePdf } from '../../shared/services/reportService'
 import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
 import AppSelect from '../../shared/components/AppSelect'
+import { mapInitiativeToApi } from './initiativeMapper'
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const INITIATIVE_TEMPLATE_KEY = 'initiativeTemplateById'
@@ -1022,6 +1024,24 @@ const InitiativeDrawer = ({
 
     setSavingTemplate(true)
     try {
+      const organizationId =
+        Number(
+          initiative?.organizationId ??
+            initiative?.organization_id ??
+            activeOrganizationId
+        ) || null
+
+      if (!organizationId) {
+        throw new Error('Missing organization id')
+      }
+
+      // Save current drawer values first so the template snapshot uses the latest title,
+      // executive summary, and budget instead of older server-side data.
+      const persistedPayload = mapInitiativeToApi(form, organizationId, {
+        goalId: form?.goalId ?? null,
+      })
+      await updateInitiative(Number(form.id), persistedPayload)
+
       const payload = await saveInitiativeAsTemplate(Number(form.id))
       const savedTemplate = resolveTemplateEntity(payload) || payload
       const savedTemplateId = resolveTemplateId(savedTemplate)
@@ -1821,7 +1841,7 @@ const InitiativeDrawer = ({
         </div>
 
         {showTemplateActions && templateDialogOpen && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4">
+          <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
               <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
                 <div>

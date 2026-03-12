@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import WorkspaceLayout from '../../shared/components/WorkspaceLayout'
 import AppSelect from '../../shared/components/AppSelect'
 import ToastMessage from '../../shared/components/ToastMessage'
-import { getOrganizationById, getOrganizations } from '../../shared/services/organizationService'
+import { getOrganizationUsers, getOrganizations } from '../../shared/services/organizationService'
 import {
   addUserToOrganization,
   getAdminUsers,
@@ -38,57 +38,6 @@ const getUserFromRecord = (record) => {
   }
 }
 
-const extractOrganizationUsers = (organization) => {
-  if (!organization || typeof organization !== 'object') {
-    return []
-  }
-  const buckets = [
-    organization.users,
-    organization.members,
-    organization.organization_users,
-    organization.user_memberships,
-  ]
-  const users = []
-  buckets.forEach((bucket) => {
-    if (!Array.isArray(bucket)) {
-      return
-    }
-    bucket.forEach((record) => {
-      const user = getUserFromRecord(record)
-      if (user) {
-        users.push(user)
-      }
-    })
-  })
-  return users
-}
-
-const extractOrganizationUserIds = (organization) => {
-  const ids = new Set()
-  extractOrganizationUsers(organization).forEach((user) => {
-    ids.add(toUserId(user.id))
-  })
-
-  const buckets = [
-    organization?.user_ids,
-    organization?.member_ids,
-    organization?.organization_user_ids,
-  ]
-  buckets.forEach((bucket) => {
-    if (!Array.isArray(bucket)) {
-      return
-    }
-    bucket.forEach((value) => {
-      const id = toUserId(value)
-      if (id) {
-        ids.add(id)
-      }
-    })
-  })
-
-  return Array.from(ids)
-}
-
 const buildErrorMessage = (fallback, err) => {
   const status = err?.response?.status
   const detail = err?.response?.data?.detail
@@ -99,6 +48,68 @@ const buildErrorMessage = (fallback, err) => {
     return `${fallback} (HTTP ${status})`
   }
   return fallback
+}
+
+const getErrorDetail = (err) => {
+  const detail = err?.response?.data?.detail
+  if (typeof detail === 'string') {
+    return detail.trim()
+  }
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (typeof item === 'string') {
+          return item.trim()
+        }
+        if (item && typeof item === 'object' && typeof item.msg === 'string') {
+          return item.msg.trim()
+        }
+        return ''
+      })
+      .filter(Boolean)
+      .join('. ')
+  }
+  return ''
+}
+
+const isAlreadyMemberError = (err) => {
+  const detail = getErrorDetail(err).toLowerCase()
+  return detail.includes('already') && (detail.includes('member') || detail.includes('organization'))
+}
+
+const dedupeUsers = (users) => {
+  if (!Array.isArray(users)) {
+    return []
+  }
+
+  const byKey = new Map()
+  users.forEach((record) => {
+    const user = getUserFromRecord(record) || record
+    if (!user || typeof user !== 'object') {
+      return
+    }
+
+    const idKey = toUserId(user.id)
+    const emailKey = String(user.email || '').trim().toLowerCase()
+    const key = idKey || emailKey
+    if (!key) {
+      return
+    }
+
+    const previous = byKey.get(key) || {}
+    byKey.set(key, {
+      ...previous,
+      ...user,
+      id: user.id ?? previous.id ?? null,
+      email: user.email || previous.email || '',
+      full_name: user.full_name || previous.full_name || '',
+      is_active: user.is_active ?? previous.is_active ?? true,
+      is_admin: user.is_admin ?? previous.is_admin ?? false,
+      created_at: user.created_at || previous.created_at || null,
+    })
+  })
+
+  return Array.from(byKey.values())
 }
 
 const formatDate = (value) => {
@@ -147,6 +158,7 @@ const AdminPage = () => {
   const [organizations, setOrganizations] = useState([])
   const [allUsers, setAllUsers] = useState([])
   const [organizationUsersById, setOrganizationUsersById] = useState(() => readMembershipCache())
+  const [organizationUserErrorsById, setOrganizationUserErrorsById] = useState({})
   const [selectedOrganizationId, setSelectedOrganizationId] = useState(() => {
     try {
       return localStorage.getItem(SELECTED_CLIENT_STORAGE_KEY) || ''
@@ -158,68 +170,57 @@ const AdminPage = () => {
   const [selectedRemoveUserId, setSelectedRemoveUserId] = useState('')
   const [searchOrganizations, setSearchOrganizations] = useState('')
   const [searchMembers, setSearchMembers] = useState('')
-  const [showAddUserDialog, setShowAddUserDialog] = useState(false)
-  const [showRemoveUserDialog, setShowRemoveUserDialog] = useState(false)
   const [loading, setLoading] = useState(false)
   const [membersLoading, setMembersLoading] = useState(false)
   const [runningActionKey, setRunningActionKey] = useState('')
   const [toast, setToast] = useState(null)
   const selectedOrganizationIdRef = useRef(selectedOrganizationId)
 
-  const hydrateOrganizationUsers = useCallback((organization) => {
-    const id = toUserId(organization?.id)
-    if (!id) {
-      return
-    }
-
-    const explicitUsers = extractOrganizationUsers(organization)
-    const explicitIds = extractOrganizationUserIds(organization)
-
-    if (explicitUsers.length > 0) {
-      setAllUsers((prev) => {
-        const byId = new Map(prev.map((user) => [toUserId(user.id), user]))
-        explicitUsers.forEach((user) => {
-          byId.set(toUserId(user.id), user)
-        })
-        return Array.from(byId.values())
-      })
-    }
-
-    if (explicitIds.length > 0) {
-      setOrganizationUsersById((prev) => ({ ...prev, [id]: explicitIds }))
-      return
-    }
-
-    if (explicitUsers.length > 0) {
-      setOrganizationUsersById((prev) => ({
-        ...prev,
-        [id]: explicitUsers.map((user) => toUserId(user.id)),
-      }))
-      return
-    }
-
-    setOrganizationUsersById((prev) => {
-      if (Object.prototype.hasOwnProperty.call(prev, id)) {
-        return prev
-      }
-      return { ...prev, [id]: [] }
-    })
-  }, [])
-
-  const loadOrganizationDetails = useCallback(async (organizationId) => {
+  const loadOrganizationUsers = useCallback(async (organizationId) => {
     if (!organizationId) {
       return
     }
     setMembersLoading(true)
     try {
-      const details = await getOrganizationById(Number(organizationId))
-      hydrateOrganizationUsers(details)
-    } catch {
-      // If endpoint doesn't return members in this environment, keep existing mapping.
+      const payload = await getOrganizationUsers(Number(organizationId))
+      const users = dedupeUsers(
+        Array.isArray(payload) ? payload.map((record) => getUserFromRecord(record) || record) : []
+      )
+      setAllUsers((prev) => {
+        const byId = new Map(prev.map((user) => [toUserId(user.id), user]))
+        users.forEach((user) => {
+          const existing = byId.get(toUserId(user.id))
+          byId.set(toUserId(user.id), {
+            ...existing,
+            ...user,
+            id: user.id ?? existing?.id ?? null,
+            email: user.email || existing?.email || '',
+            full_name: user.full_name || existing?.full_name || '',
+            is_active: user.is_active ?? existing?.is_active ?? true,
+            is_admin: user.is_admin ?? existing?.is_admin ?? false,
+            created_at: user.created_at || existing?.created_at || null,
+          })
+        })
+        return Array.from(byId.values())
+      })
+      setOrganizationUsersById((prev) => ({
+        ...prev,
+        [toUserId(organizationId)]: users.map((user) => toUserId(user.id)),
+      }))
+      setOrganizationUserErrorsById((prev) => {
+        const next = { ...prev }
+        delete next[toUserId(organizationId)]
+        return next
+      })
+    } catch (err) {
+      setOrganizationUserErrorsById((prev) => ({
+        ...prev,
+        [toUserId(organizationId)]: buildErrorMessage('Unable to load users', err),
+      }))
     } finally {
       setMembersLoading(false)
     }
-  }, [hydrateOrganizationUsers])
+  }, [])
 
   const loadPageData = useCallback(async () => {
     setLoading(true)
@@ -228,21 +229,10 @@ const AdminPage = () => {
       const organizationsList = Array.isArray(organizationsData)
         ? organizationsData
         : organizationsData?.organizations || []
-      const usersList = Array.isArray(usersData) ? usersData : []
+      const usersList = dedupeUsers(Array.isArray(usersData) ? usersData : [])
 
       setOrganizations(organizationsList)
       setAllUsers(usersList)
-
-      organizationsList.forEach((organization) => hydrateOrganizationUsers(organization))
-
-      const detailsResults = await Promise.allSettled(
-        organizationsList.map((organization) => getOrganizationById(Number(organization.id)))
-      )
-      detailsResults.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          hydrateOrganizationUsers(result.value)
-        }
-      })
 
       const firstOrganizationId = toUserId(organizationsList[0]?.id)
       const previousSelectedId = toUserId(selectedOrganizationIdRef.current)
@@ -251,15 +241,21 @@ const AdminPage = () => {
       )
       const nextSelectedId = hasPreviousSelection ? previousSelectedId : firstOrganizationId
       setSelectedOrganizationId(nextSelectedId)
-      if (nextSelectedId) {
-        await loadOrganizationDetails(nextSelectedId)
-      }
+
+      const membershipResults = await Promise.allSettled(
+        organizationsList.map((organization) => loadOrganizationUsers(toUserId(organization.id)))
+      )
+      membershipResults.forEach((result) => {
+        if (result.status === 'rejected') {
+          // errors are tracked per organization inside loadOrganizationUsers
+        }
+      })
     } catch (err) {
       setToast({ type: 'error', message: buildErrorMessage('Unable to load admin data', err) })
     } finally {
       setLoading(false)
     }
-  }, [hydrateOrganizationUsers, loadOrganizationDetails])
+  }, [loadOrganizationUsers])
 
   useEffect(() => {
     loadPageData()
@@ -314,18 +310,29 @@ const AdminPage = () => {
     return organizationUsersById[key] || []
   }, [organizationUsersById, selectedOrganizationId])
 
+  const hasResolvedMembershipData = useMemo(() => {
+    const key = toUserId(selectedOrganizationId)
+    return Boolean(key) && Object.prototype.hasOwnProperty.call(organizationUsersById, key)
+  }, [organizationUsersById, selectedOrganizationId])
+
   const organizationMembers = useMemo(() => {
     const userMap = new Map(allUsers.map((user) => [toUserId(user.id), user]))
-    const usersFromIds = selectedOrganizationUserIds
-      .map((id) => userMap.get(toUserId(id)))
-      .filter(Boolean)
+    const usersFromIds = dedupeUsers(Array.from(
+      new Map(
+        selectedOrganizationUserIds
+          .map((id) => userMap.get(toUserId(id)))
+          .filter(Boolean)
+          .map((user) => [toUserId(user.id), user])
+      ).values()
+    ))
 
-    if (usersFromIds.length > 0) {
-      return usersFromIds
-    }
+    return usersFromIds
+  }, [allUsers, selectedOrganizationUserIds])
 
-    return extractOrganizationUsers(selectedOrganization)
-  }, [allUsers, selectedOrganizationUserIds, selectedOrganization])
+  const selectedOrganizationUsersError = useMemo(
+    () => organizationUserErrorsById[toUserId(selectedOrganizationId)] || '',
+    [organizationUserErrorsById, selectedOrganizationId]
+  )
 
   const filteredMembers = useMemo(() => {
     const query = searchMembers.trim().toLowerCase()
@@ -340,9 +347,12 @@ const AdminPage = () => {
   }, [organizationMembers, searchMembers])
 
   const nonMembers = useMemo(() => {
+    if (!hasResolvedMembershipData) {
+      return []
+    }
     const memberIdSet = new Set(selectedOrganizationUserIds.map((id) => toUserId(id)))
     return allUsers.filter((user) => !memberIdSet.has(toUserId(user.id)))
-  }, [allUsers, selectedOrganizationUserIds])
+  }, [allUsers, hasResolvedMembershipData, selectedOrganizationUserIds])
 
   const addUserOptions = useMemo(
     () =>
@@ -353,13 +363,14 @@ const AdminPage = () => {
     [nonMembers]
   )
 
-  const removeUserOptions = useMemo(() => {
-    const source = organizationMembers.length > 0 ? organizationMembers : allUsers
-    return source.map((user) => ({
-      value: toUserId(user.id),
-      label: `${user.full_name || user.email} (${user.email})`,
-    }))
-  }, [organizationMembers, allUsers])
+  const removeUserOptions = useMemo(
+    () =>
+      organizationMembers.map((user) => ({
+        value: toUserId(user.id),
+        label: `${user.full_name || user.email} (${user.email})`,
+      })),
+    [organizationMembers]
+  )
 
   const onOrganizationClick = async (organizationId) => {
     const id = toUserId(organizationId)
@@ -367,9 +378,7 @@ const AdminPage = () => {
     setSearchMembers('')
     setSelectedNewUserId('')
     setSelectedRemoveUserId('')
-    setShowAddUserDialog(false)
-    setShowRemoveUserDialog(false)
-    await loadOrganizationDetails(id)
+    await loadOrganizationUsers(id)
   }
 
   const runAction = async (actionKey, successMessage, request, optimisticUpdate) => {
@@ -380,7 +389,7 @@ const AdminPage = () => {
         optimisticUpdate()
       }
       if (selectedOrganizationId) {
-        await loadOrganizationDetails(selectedOrganizationId)
+        await loadOrganizationUsers(selectedOrganizationId)
       }
       setToast({ type: 'success', message: successMessage })
     } catch (err) {
@@ -417,22 +426,33 @@ const AdminPage = () => {
       setToast({ type: 'error', message: 'Select a user to add.' })
       return
     }
-    await runAction(
-      `${selectedOrganizationId}:${selectedNewUserId}:add`,
-      'User added to client.',
-      () => addUserToOrganization(userId, organizationId),
-      () => {
-        setOrganizationUsersById((prev) => {
-          const current = prev[selectedOrganizationId] || []
-          if (current.some((id) => toUserId(id) === toUserId(userId))) {
-            return prev
-          }
-          return { ...prev, [selectedOrganizationId]: [...current, toUserId(userId)] }
-        })
-        setSelectedNewUserId('')
-        setShowAddUserDialog(false)
+    const applyLocalMembership = () => {
+      setOrganizationUsersById((prev) => {
+        const current = prev[selectedOrganizationId] || []
+        if (current.some((id) => toUserId(id) === toUserId(userId))) {
+          return prev
+        }
+        return { ...prev, [selectedOrganizationId]: [...current, toUserId(userId)] }
+      })
+      setSelectedNewUserId('')
+    }
+
+    try {
+      setRunningActionKey(`${selectedOrganizationId}:${selectedNewUserId}:add`)
+      await addUserToOrganization(userId, organizationId)
+      applyLocalMembership()
+      await loadOrganizationUsers(selectedOrganizationId)
+      setToast({ type: 'success', message: 'User added to client.' })
+    } catch (err) {
+      if (isAlreadyMemberError(err)) {
+        applyLocalMembership()
+        setToast({ type: 'success', message: 'User is already a member of this client.' })
+        return
       }
-    )
+      setToast({ type: 'error', message: buildErrorMessage('Action failed', err) })
+    } finally {
+      setRunningActionKey('')
+    }
   }
 
   const handleRemoveSelectedUser = async () => {
@@ -454,7 +474,6 @@ const AdminPage = () => {
           ),
         }))
         setSelectedRemoveUserId('')
-        setShowRemoveUserDialog(false)
       }
     )
   }
@@ -466,13 +485,16 @@ const AdminPage = () => {
           <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
             <h2 className="text-xl font-semibold text-gray-900">Admin Panel</h2>
             <p className="mt-1 text-sm text-gray-600">
-              Select a client to manage its users.
+              Manage client membership from a single workspace.
             </p>
 
-            <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-5">
-              <div className="lg:col-span-2 rounded-lg border border-gray-200 bg-white">
+            <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(240px,0.82fr)_minmax(0,1.95fr)]">
+              <div className="rounded-lg border border-gray-200 bg-white">
                 <div className="border-b border-gray-200 px-4 py-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Organizations</h3>
+                  <h3 className="text-sm font-semibold text-gray-900">Clients</h3>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Pick a client to review assigned users.
+                  </p>
                   <div className="mt-2">
                     <input
                       type="text"
@@ -493,7 +515,7 @@ const AdminPage = () => {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-4 py-2 text-left font-semibold text-gray-700">Client</th>
-                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Users</th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Members</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -501,7 +523,7 @@ const AdminPage = () => {
                           const organizationId = toUserId(organization.id)
                           const isSelected = toUserId(selectedOrganizationId) === organizationId
                           const knownUsers = organizationUsersById[organizationId]
-                          const usersCount = Array.isArray(knownUsers) ? knownUsers.length : '-'
+                          const usersCount = Array.isArray(knownUsers) ? knownUsers.length : 'Unknown'
                           return (
                             <tr
                               key={organizationId}
@@ -528,65 +550,127 @@ const AdminPage = () => {
                 </div>
               </div>
 
-              <div className="lg:col-span-3 rounded-lg border border-gray-200 bg-white">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900">
-                      {selectedOrganization?.name || 'Client Users'}
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      {selectedOrganization
-                        ? `${organizationMembers.length} user(s) associated`
-                        : 'Select a client'}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="text"
-                      value={searchMembers}
-                      onChange={(event) => setSearchMembers(event.target.value)}
-                      placeholder="Search users..."
-                      disabled={!selectedOrganization}
-                      className="h-9 min-w-55 rounded-md border border-gray-300 px-3 text-sm text-gray-700 disabled:cursor-not-allowed disabled:bg-gray-100"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowAddUserDialog(true)}
-                      disabled={!selectedOrganization}
-                      className="h-9 rounded-md bg-[rgb(5,117,204)] px-4 text-sm font-medium text-white hover:bg-[rgb(0,97,170)] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Add User
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowRemoveUserDialog(true)}
-                      disabled={!selectedOrganization || removeUserOptions.length === 0}
-                      className="h-9 rounded-md border border-red-300 px-4 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Remove User
-                    </button>
+              <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+                <div className="border-b border-gray-200 px-4 py-3">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">
+                          {selectedOrganization?.name || 'Client Members'}
+                        </h3>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {selectedOrganization
+                            ? selectedOrganization.description || 'No description available.'
+                            : 'Select a client to view members.'}
+                        </p>
+                      </div>
+                      <input
+                        type="text"
+                        value={searchMembers}
+                        onChange={(event) => setSearchMembers(event.target.value)}
+                        placeholder="Search users..."
+                        disabled={!selectedOrganization}
+                        className="h-9 w-full rounded-md border border-gray-300 px-3 text-sm text-gray-700 disabled:cursor-not-allowed disabled:bg-gray-100 sm:max-w-xs"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <div className="text-xs font-semibold text-gray-700">Add User</div>
+                        <div className="mt-2">
+                          <AppSelect
+                            options={addUserOptions}
+                            value={selectedNewUserId}
+                            onChange={(nextValue) => setSelectedNewUserId(toUserId(nextValue))}
+                            placeholder="Select a user..."
+                            className="w-full"
+                            isSearchable
+                          />
+                        </div>
+                        {addUserOptions.length === 0 ? (
+                          <div className="mt-2 text-xs text-gray-600">
+                            {!selectedOrganization
+                              ? 'Select a client first.'
+                              : !hasResolvedMembershipData
+                                ? 'Unable to load users for this client.'
+                                : 'All available users are already assigned to this client.'}
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={handleAddUser}
+                          disabled={!selectedNewUserId || !selectedOrganization || !hasResolvedMembershipData}
+                          className="mt-3 h-9 w-full rounded-md bg-[rgb(5,117,204)] px-4 text-sm font-medium text-white hover:bg-[rgb(0,97,170)] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Add User
+                        </button>
+                      </div>
+
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <div className="text-xs font-semibold text-gray-700">Remove User</div>
+                        <div className="mt-2">
+                          <AppSelect
+                            options={removeUserOptions}
+                            value={selectedRemoveUserId}
+                            onChange={(nextValue) => setSelectedRemoveUserId(toUserId(nextValue))}
+                            placeholder="Select a user..."
+                            className="w-full"
+                            isSearchable
+                          />
+                        </div>
+                        {removeUserOptions.length === 0 ? (
+                          <div className="mt-2 text-xs text-gray-600">
+                            {!selectedOrganization
+                              ? 'Select a client first.'
+                              : !hasResolvedMembershipData
+                                ? 'Unable to load users for this client.'
+                                : 'No removable members found for this client.'}
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={handleRemoveSelectedUser}
+                          disabled={!selectedRemoveUserId || !selectedOrganization || !hasResolvedMembershipData}
+                          className="mt-3 h-9 w-full rounded-md border border-red-300 px-4 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Remove User
+                        </button>
+                      </div>
+                    </div>
+
+                    {!hasResolvedMembershipData && selectedOrganization ? (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                        <p className="text-xs text-amber-700">
+                          {selectedOrganizationUsersError || 'This client user list could not be loaded, so add and remove actions are disabled.'}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
-                <div className="max-h-130 overflow-auto">
+                <div className="max-h-130 overflow-y-auto overflow-x-hidden">
                   {!selectedOrganization ? (
                     <div className="px-4 py-5 text-sm text-gray-500">
-                      Select a client to view users.
+                      Select a client to view members.
                     </div>
                   ) : membersLoading ? (
                     <div className="px-4 py-5 text-sm text-gray-500">Loading users...</div>
+                  ) : !hasResolvedMembershipData ? (
+                    <div className="px-4 py-5 text-sm text-amber-700">
+                      {selectedOrganizationUsersError || 'Unable to load users for this client.'}
+                    </div>
                   ) : filteredMembers.length === 0 ? (
-                    <div className="px-4 py-5 text-sm text-gray-500">No users found for this organization.</div>
+                    <div className="px-4 py-5 text-sm text-gray-500">No users found for this client.</div>
                   ) : (
-                    <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <table className="w-full table-fixed divide-y divide-gray-200 text-sm">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Name</th>
-                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Email</th>
-                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Status</th>
-                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Role</th>
-                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Created</th>
-                          <th className="px-4 py-2 text-left font-semibold text-gray-700">Actions</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 w-[21%]">Name</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 w-[24%]">Email</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 w-[13%]">Status</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 w-[11%]">Role</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 w-[15%] whitespace-nowrap">Created</th>
+                          <th className="px-3 py-2 text-left font-semibold text-gray-700 w-[16%] whitespace-nowrap">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
@@ -597,9 +681,9 @@ const AdminPage = () => {
                           )
                           return (
                             <tr key={userId}>
-                              <td className="px-4 py-2 text-gray-900">{user.full_name || '-'}</td>
-                              <td className="px-4 py-2 text-gray-700">{user.email || '-'}</td>
-                              <td className="px-4 py-2">
+                              <td className="px-3 py-2 text-gray-900 break-words">{user.full_name || '-'}</td>
+                              <td className="px-3 py-2 text-gray-700 break-all">{user.email || '-'}</td>
+                              <td className="px-3 py-2">
                                 <span
                                   className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
                                     user.is_active
@@ -610,7 +694,7 @@ const AdminPage = () => {
                                   {user.is_active ? 'Active' : 'Inactive'}
                                 </span>
                               </td>
-                              <td className="px-4 py-2">
+                              <td className="px-3 py-2">
                                 <span
                                   className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
                                     user.is_admin
@@ -621,18 +705,16 @@ const AdminPage = () => {
                                   {user.is_admin ? 'Admin' : 'User'}
                                 </span>
                               </td>
-                              <td className="px-4 py-2 text-gray-700">{formatDate(user.created_at)}</td>
-                              <td className="px-4 py-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveUser(user.id)}
-                                    disabled={rowBusy}
-                                    className="h-8 rounded-md border border-red-300 px-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    Remove
-                                  </button>
-                                </div>
+                              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{formatDate(user.created_at)}</td>
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveUser(user.id)}
+                                  disabled={rowBusy}
+                                  className="h-8 rounded-md border border-red-300 px-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Remove
+                                </button>
                               </td>
                             </tr>
                           )
@@ -646,105 +728,6 @@ const AdminPage = () => {
           </div>
         </div>
       </div>
-
-      {showAddUserDialog && selectedOrganization ? (
-        <div className="fixed inset-0 z-1200 flex items-center justify-center bg-black/35 px-4">
-          <div className="w-full max-w-xl rounded-lg border border-gray-200 bg-white p-5 shadow-lg">
-            <h3 className="text-lg font-semibold text-gray-900">Add User</h3>
-            <p className="mt-1 text-sm text-gray-600">
-              Add a user to {selectedOrganization?.name || 'this client'}.
-            </p>
-
-            <div className="mt-4">
-              <AppSelect
-                options={addUserOptions}
-                value={selectedNewUserId}
-                onChange={(nextValue) => setSelectedNewUserId(toUserId(nextValue))}
-                placeholder="Select a user..."
-                className="w-full"
-                isSearchable
-              />
-            </div>
-
-            {addUserOptions.length === 0 ? (
-              <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                All users are already part of this organization.
-              </div>
-            ) : null}
-
-            <div className="mt-5 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAddUserDialog(false)
-                  setSelectedNewUserId('')
-                }}
-                className="h-9 rounded-md border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-100"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleAddUser}
-                disabled={!selectedNewUserId}
-                className="h-9 rounded-md bg-[rgb(5,117,204)] px-4 text-sm font-medium text-white hover:bg-[rgb(0,97,170)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Add User
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showRemoveUserDialog && selectedOrganization ? (
-        <div className="fixed inset-0 z-1200 flex items-center justify-center bg-black/35 px-4">
-          <div className="w-full max-w-xl rounded-lg border border-gray-200 bg-white p-5 shadow-lg">
-            <h3 className="text-lg font-semibold text-gray-900">Remove User</h3>
-            <p className="mt-1 text-sm text-gray-600">
-              Remove a user from {selectedOrganization?.name || 'this client'}.
-            </p>
-
-            <div className="mt-4">
-              <AppSelect
-                options={removeUserOptions}
-                value={selectedRemoveUserId}
-                onChange={(nextValue) => setSelectedRemoveUserId(toUserId(nextValue))}
-                placeholder="Select a user..."
-                className="w-full"
-                isSearchable
-              />
-            </div>
-
-            {organizationMembers.length === 0 ? (
-              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                Membership list not returned by backend for this client. You can still try
-                remove by selecting a user.
-              </div>
-            ) : null}
-
-            <div className="mt-5 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRemoveUserDialog(false)
-                  setSelectedRemoveUserId('')
-                }}
-                className="h-9 rounded-md border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-100"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleRemoveSelectedUser}
-                disabled={!selectedRemoveUserId}
-                className="h-9 rounded-md border border-red-300 px-4 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Remove User
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </WorkspaceLayout>

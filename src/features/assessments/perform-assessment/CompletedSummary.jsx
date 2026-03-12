@@ -42,7 +42,7 @@ const CompletedSummary = ({
         visibleGroups.map((group) => (
           <div
             key={group.key}
-            className="rounded-lg border border-gray-200 overflow-hidden bg-white"
+            className="rounded-lg border border-gray-200 bg-white overflow-visible"
           >
             <div className={`px-4 py-3 flex items-center gap-3 font-semibold ${group.header}`}>
               <span>{group.label}</span>
