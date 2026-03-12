@@ -24,9 +24,14 @@ import {
   getQuarterStartDate,
 } from './initiativeConstants'
 import { getGoals } from '../../shared/services/goalService'
-import { getInitiativeById } from '../../shared/services/initiativeService'
+import {
+  applyInitiativeTemplate,
+  getInitiativeById,
+  getInitiativeTemplateById,
+  getInitiativeTemplates,
+  saveInitiativeAsTemplate,
+} from '../../shared/services/initiativeService'
 import { getAssessmentById } from '../../shared/services/assessmentService'
-import { getTemplateById, getTemplates } from '../../shared/services/templateService'
 import { downloadInitiativePdf } from '../../shared/services/reportService'
 import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
@@ -516,6 +521,7 @@ const InitiativeDrawer = ({
   presetQuarter,
   onLinkedAssessmentClick = null,
   linkedAssessmentId = null,
+  showTemplateActions = true,
 }) => {
   const navigate = useNavigate()
   const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
@@ -619,6 +625,7 @@ const InitiativeDrawer = ({
   const [templateOptions, setTemplateOptions] = useState([])
   const [selectedTemplateId, setSelectedTemplateId] = useState(null)
   const [applyingTemplate, setApplyingTemplate] = useState(false)
+  const [savingTemplate, setSavingTemplate] = useState(false)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
   const [toast, setToast] = useState(null)
   const [showGoalInitiativeLinks] = useState(false)
@@ -633,8 +640,8 @@ const InitiativeDrawer = ({
     }
     return templateOptions.filter((template) => {
       const title = resolveTemplateTitle(template).toLowerCase()
-      const description = cleanLinkedText(template?.description || '').toLowerCase()
-      return title.includes(query) || description.includes(query)
+      const summary = resolveTemplateSummary(template).toLowerCase()
+      return title.includes(query) || summary.includes(query)
     })
   }, [templateOptions, templateSearch])
 
@@ -735,8 +742,8 @@ const InitiativeDrawer = ({
 
     const loadTemplatesForDialog = async () => {
       try {
-        const data = await getTemplates()
-        const list = Array.isArray(data) ? data : data?.templates || []
+        const data = await getInitiativeTemplates()
+        const list = Array.isArray(data) ? data : data?.templates || data?.items || []
         if (!isActive) {
           return
         }
@@ -744,7 +751,7 @@ const InitiativeDrawer = ({
       } catch {
         if (isActive) {
           setTemplateOptions([])
-          setTemplateError('Unable to load templates')
+          setTemplateError('Unable to load initiative templates')
         }
       } finally {
         if (isActive) {
@@ -989,6 +996,9 @@ const InitiativeDrawer = ({
   }
 
   const handleOpenTemplateDialog = () => {
+    if (!showTemplateActions) {
+      return
+    }
     setTemplateDialogOpen(true)
     setTemplateError('')
     setTemplateSearch('')
@@ -999,6 +1009,51 @@ const InitiativeDrawer = ({
     setTemplateDialogOpen(false)
     setTemplateError('')
     setTemplateSearch('')
+  }
+
+  const handleSaveAsTemplate = async () => {
+    if (mode !== 'edit' || !form?.id || !isNumericLike(form.id)) {
+      setToast({
+        type: 'error',
+        message: 'Save the initiative first, then save it as a template.',
+      })
+      return
+    }
+
+    setSavingTemplate(true)
+    try {
+      const payload = await saveInitiativeAsTemplate(Number(form.id))
+      const savedTemplate = resolveTemplateEntity(payload) || payload
+      const savedTemplateId = resolveTemplateId(savedTemplate)
+      const savedTemplateTitle =
+        resolveTemplateTitle(savedTemplate) || cleanLinkedText(form.title) || 'Initiative Template'
+
+      if (savedTemplateId) {
+        setTemplateOptions((prev) => {
+          const next = Array.isArray(prev) ? [...prev] : []
+          const index = next.findIndex(
+            (template) => String(resolveTemplateId(template)) === String(savedTemplateId)
+          )
+          if (index >= 0) {
+            next[index] = savedTemplate
+            return next
+          }
+          return [savedTemplate, ...next]
+        })
+      }
+
+      setToast({
+        type: 'success',
+        message: `Template "${savedTemplateTitle}" saved.`,
+      })
+    } catch {
+      setToast({
+        type: 'error',
+        message: 'Unable to save initiative as template. Please try again.',
+      })
+    } finally {
+      setSavingTemplate(false)
+    }
   }
 
   const handleApplyTemplate = async () => {
@@ -1020,9 +1075,18 @@ const InitiativeDrawer = ({
     try {
       const appliedTemplateId = resolveTemplateId(selectedTemplate)
       let templateEntity = selectedTemplate
+      let appliedInitiativeEntity = null
+
+      if (mode === 'edit' && form?.id && isNumericLike(form.id) && isNumericLike(appliedTemplateId)) {
+        const appliedPayload = await applyInitiativeTemplate(
+          Number(form.id),
+          Number(appliedTemplateId)
+        )
+        appliedInitiativeEntity = appliedPayload?.initiative || appliedPayload
+      }
 
       try {
-        const detailPayload = await getTemplateById(appliedTemplateId)
+        const detailPayload = await getInitiativeTemplateById(appliedTemplateId)
         templateEntity = resolveTemplateEntity(detailPayload) || selectedTemplate
       } catch {
         templateEntity = selectedTemplate
@@ -1033,16 +1097,22 @@ const InitiativeDrawer = ({
         resolveTemplateTitle(selectedTemplate) ||
         `Template ${appliedTemplateId}`
       const appliedSummary =
-        resolveTemplateSummary(templateEntity) || cleanLinkedText(selectedTemplate?.description || '')
+        resolveTemplateSummary(appliedInitiativeEntity) || resolveTemplateSummary(templateEntity)
       const appliedActionItems = resolveTemplateActionItems(templateEntity)
-      const appliedOneTimeFees = resolveTemplateOneTimeFees(templateEntity)
-      const appliedRecurringFees = resolveTemplateRecurringFees(templateEntity)
+      const appliedOneTimeFees = resolveTemplateOneTimeFees(
+        appliedInitiativeEntity || templateEntity
+      )
+      const appliedRecurringFees = resolveTemplateRecurringFees(
+        appliedInitiativeEntity || templateEntity
+      )
+      const appliedTitle =
+        cleanLinkedText(appliedInitiativeEntity?.title) || appliedTemplateTitle
 
       setForm((prev) => ({
         ...prev,
         templateId: appliedTemplateId,
         templateTitle: appliedTemplateTitle,
-        title: appliedTemplateTitle,
+        title: appliedTitle,
         summary: appliedSummary,
         actionItems: appliedActionItems,
         oneTimeFees: appliedOneTimeFees,
@@ -1148,13 +1218,25 @@ const InitiativeDrawer = ({
             <p className="text-xs text-gray-500">Manage roadmap initiatives in one place.</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleOpenTemplateDialog}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              Apply Template
-            </button>
+            {mode === 'edit' && showTemplateActions && (
+              <button
+                type="button"
+                onClick={handleSaveAsTemplate}
+                disabled={savingTemplate}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingTemplate ? 'Saving...' : 'Save as Template'}
+              </button>
+            )}
+            {showTemplateActions && (
+              <button
+                type="button"
+                onClick={handleOpenTemplateDialog}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Apply Template
+              </button>
+            )}
             <button
               type="button"
               className="ml-2 text-gray-400 hover:text-gray-600"
@@ -1738,7 +1820,7 @@ const InitiativeDrawer = ({
           </div>
         </div>
 
-        {templateDialogOpen && (
+        {showTemplateActions && templateDialogOpen && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
               <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
@@ -1776,15 +1858,19 @@ const InitiativeDrawer = ({
 
                 <div className="max-h-72 overflow-auto rounded-md border border-gray-200">
                   {loadingTemplates ? (
-                    <div className="px-3 py-3 text-sm text-gray-500">Loading templates...</div>
+                    <div className="px-3 py-3 text-sm text-gray-500">
+                      Loading initiative templates...
+                    </div>
                   ) : filteredTemplateOptions.length === 0 ? (
-                    <div className="px-3 py-3 text-sm text-gray-500">No templates found.</div>
+                    <div className="px-3 py-3 text-sm text-gray-500">
+                      No initiative templates found.
+                    </div>
                   ) : (
                     <div className="divide-y divide-gray-200">
                       {filteredTemplateOptions.map((template) => {
                         const templateId = resolveTemplateId(template)
                         const title = resolveTemplateTitle(template) || `Template ${templateId}`
-                        const description = cleanLinkedText(template?.description || '')
+                        const description = resolveTemplateSummary(template)
                         const isSelected =
                           String(selectedTemplateId || '') === String(templateId || '')
                         return (

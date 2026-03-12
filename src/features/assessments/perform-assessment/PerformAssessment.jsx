@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { FiArrowLeft, FiDownload } from 'react-icons/fi'
+import { FiArrowLeft, FiDownload, FiMessageSquare } from 'react-icons/fi'
 import {
   completeAssessment,
   getAssessmentById,
+  updateSubcategoryComments,
   updateSubcategoryResponse,
 } from '../../../shared/services/assessmentService'
 import {
@@ -166,6 +167,22 @@ const normalizeAssessment = (data) => {
           subcategory.selected_response?.id ||
           subcategory.selectedResponse?.id ||
           null,
+        publicComment: pickFirstText(
+          subcategory.public_comment,
+          subcategory.publicComment,
+          subcategory.comments?.public_comment,
+          subcategory.comments?.publicComment,
+          subcategory.comment?.public_comment,
+          subcategory.comment?.publicComment
+        ),
+        internalComment: pickFirstText(
+          subcategory.internal_comment,
+          subcategory.internalComment,
+          subcategory.comments?.internal_comment,
+          subcategory.comments?.internalComment,
+          subcategory.comment?.internal_comment,
+          subcategory.comment?.internalComment
+        ),
       }
     })
 
@@ -274,7 +291,9 @@ const PerformAssessment = ({
   const [expandedItems, setExpandedItems] = useState(() => new Set())
   const [selections, setSelections] = useState({})
   const [pendingResponses, setPendingResponses] = useState({})
+  const [pendingComments, setPendingComments] = useState({})
   const [savingItems, setSavingItems] = useState(() => new Set())
+  const [savingCommentItems, setSavingCommentItems] = useState(() => new Set())
   const [lastAutoSavedAt, setLastAutoSavedAt] = useState(null)
   const [isCompleting, setIsCompleting] = useState(false)
   const [responseFilter, setResponseFilter] = useState('all')
@@ -294,7 +313,9 @@ const PerformAssessment = ({
   const [isDownloadingReport, setIsDownloadingReport] = useState(false)
   const [toast, setToast] = useState(null)
   const pendingResponsesRef = useRef({})
+  const pendingCommentsRef = useRef({})
   const isFlushingResponsesRef = useRef(false)
+  const isFlushingCommentsRef = useRef(false)
 
   useEffect(() => {
     let isMounted = true
@@ -328,7 +349,9 @@ const PerformAssessment = ({
         })
         setSelections(initialSelections)
         setPendingResponses({})
+        setPendingComments({})
         setSavingItems(new Set())
+        setSavingCommentItems(new Set())
         setLastAutoSavedAt(null)
       } catch (loadError) {
         console.error('Unable to load assessment:', loadError)
@@ -403,6 +426,10 @@ const PerformAssessment = ({
   useEffect(() => {
     pendingResponsesRef.current = pendingResponses
   }, [pendingResponses])
+
+  useEffect(() => {
+    pendingCommentsRef.current = pendingComments
+  }, [pendingComments])
 
   const categories = useMemo(() => assessment?.categories || [], [assessment])
   const years = useMemo(() => {
@@ -485,6 +512,8 @@ const PerformAssessment = ({
           description: subcategory.description,
           responseLabel: selectedOption.label,
           responseDescription: selectedOption.description,
+          publicComment: subcategory.publicComment || '',
+          internalComment: subcategory.internalComment || '',
         })
       })
     })
@@ -521,6 +550,8 @@ const PerformAssessment = ({
     0
   )
   const pendingResponseCount = Object.keys(pendingResponses).length
+  const pendingCommentCount = Object.keys(pendingComments).length
+  const pendingChangeCount = pendingResponseCount + pendingCommentCount
 
   useEffect(() => {
     if (onProgress && assessmentId) {
@@ -681,15 +712,94 @@ const PerformAssessment = ({
     return !hasErrors
   }, [assessmentId, isCompleted, readOnly])
 
+  const flushPendingComments = useCallback(async () => {
+    if (!assessmentId || readOnly || isCompleted) {
+      return true
+    }
+    if (isFlushingCommentsRef.current) {
+      let attempts = 0
+      while (isFlushingCommentsRef.current && attempts < 40) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        attempts += 1
+      }
+      if (isFlushingCommentsRef.current) {
+        return false
+      }
+    }
+
+    const pendingSnapshot = { ...pendingCommentsRef.current }
+    const entries = Object.entries(pendingSnapshot)
+    if (entries.length === 0) {
+      return true
+    }
+
+    isFlushingCommentsRef.current = true
+    let hasErrors = false
+
+    for (const [subcategoryId, commentPayload] of entries) {
+      if (!commentPayload || typeof commentPayload !== 'object') {
+        delete pendingSnapshot[subcategoryId]
+        continue
+      }
+      setSavingCommentItems((prev) => {
+        const next = new Set(prev)
+        next.add(subcategoryId)
+        return next
+      })
+      try {
+        await updateSubcategoryComments({
+          assessmentId,
+          subcategoryId,
+          internalComment: commentPayload.internalComment,
+          publicComment: commentPayload.publicComment,
+        })
+        delete pendingSnapshot[subcategoryId]
+        setPendingComments((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, subcategoryId)) {
+            return prev
+          }
+          const next = { ...prev }
+          delete next[subcategoryId]
+          pendingCommentsRef.current = next
+          return next
+        })
+      } catch (saveError) {
+        hasErrors = true
+        console.error('Unable to auto-save comments:', saveError)
+      } finally {
+        setSavingCommentItems((prev) => {
+          const next = new Set(prev)
+          next.delete(subcategoryId)
+          return next
+        })
+      }
+    }
+
+    if (hasErrors) {
+      setToast({
+        type: 'error',
+        message: 'Unable to auto-save some comments. Retrying...',
+      })
+    } else {
+      setLastAutoSavedAt(new Date())
+    }
+    pendingCommentsRef.current = pendingSnapshot
+    isFlushingCommentsRef.current = false
+    return !hasErrors
+  }, [assessmentId, isCompleted, readOnly])
+
   useEffect(() => {
     if (!assessmentId || readOnly || isCompleted) {
       return
     }
     const intervalId = setInterval(() => {
-      void flushPendingResponses()
+      void (async () => {
+        await flushPendingResponses()
+        await flushPendingComments()
+      })()
     }, AUTO_SAVE_INTERVAL_MS)
     return () => clearInterval(intervalId)
-  }, [assessmentId, flushPendingResponses, isCompleted, readOnly])
+  }, [assessmentId, flushPendingComments, flushPendingResponses, isCompleted, readOnly])
 
   const handleSelect = (subcategoryId, responseId) => {
     if (isCompleted || readOnly || isCompleting) {
@@ -708,6 +818,195 @@ const PerformAssessment = ({
     }))
   }
 
+  const handleCommentChange = (subcategoryId, field, value) => {
+    if (isCompleted || readOnly || isCompleting) {
+      return
+    }
+
+    setAssessment((prev) => {
+      if (!prev) {
+        return prev
+      }
+      return {
+        ...prev,
+        categories: prev.categories.map((category) => ({
+          ...category,
+          subcategories: category.subcategories.map((subcategory) => {
+            if (String(subcategory.id) !== String(subcategoryId)) {
+              return subcategory
+            }
+            if (field === 'publicComment') {
+              return { ...subcategory, publicComment: value }
+            }
+            return { ...subcategory, internalComment: value }
+          }),
+        })),
+      }
+    })
+
+    if (!assessmentId) {
+      return
+    }
+
+    setPendingComments((prev) => {
+      const next = { ...prev }
+      const current = next[subcategoryId] || {}
+      next[subcategoryId] = { ...current, [field]: value }
+      return next
+    })
+  }
+
+  const handleSaveComment = useCallback(
+    async (subcategoryId) => {
+      if (!assessmentId || readOnly || isCompleted) {
+        return false
+      }
+
+      const pendingForSubcategory = pendingCommentsRef.current?.[subcategoryId]
+      if (
+        !pendingForSubcategory ||
+        typeof pendingForSubcategory !== 'object' ||
+        Object.keys(pendingForSubcategory).length === 0
+      ) {
+        return true
+      }
+
+      setSavingCommentItems((prev) => {
+        const next = new Set(prev)
+        next.add(String(subcategoryId))
+        return next
+      })
+
+      try {
+        await updateSubcategoryComments({
+          assessmentId,
+          subcategoryId,
+          internalComment: pendingForSubcategory.internalComment,
+          publicComment: pendingForSubcategory.publicComment,
+        })
+
+        setPendingComments((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, subcategoryId)) {
+            return prev
+          }
+          const next = { ...prev }
+          delete next[subcategoryId]
+          return next
+        })
+        setLastAutoSavedAt(new Date())
+        return true
+      } catch (saveError) {
+        console.error('Unable to save comment:', saveError)
+        setToast({
+          type: 'error',
+          message: 'Unable to save comment. Please try again.',
+        })
+        return false
+      } finally {
+        setSavingCommentItems((prev) => {
+          const next = new Set(prev)
+          next.delete(String(subcategoryId))
+          return next
+        })
+      }
+    },
+    [assessmentId, isCompleted, readOnly]
+  )
+
+  const handleDeleteComment = useCallback(
+    async (subcategoryId, field) => {
+      if (!subcategoryId || !field) {
+        return false
+      }
+      if (readOnly || isCompleted || isCompleting) {
+        return false
+      }
+
+      setAssessment((prev) => {
+        if (!prev) {
+          return prev
+        }
+        return {
+          ...prev,
+          categories: prev.categories.map((category) => ({
+            ...category,
+            subcategories: category.subcategories.map((subcategory) => {
+              if (String(subcategory.id) !== String(subcategoryId)) {
+                return subcategory
+              }
+              if (field === 'publicComment') {
+                return { ...subcategory, publicComment: '' }
+              }
+              return { ...subcategory, internalComment: '' }
+            }),
+          })),
+        }
+      })
+
+      setPendingComments((prev) => {
+        const next = { ...prev }
+        const existing = { ...(next[subcategoryId] || {}) }
+        existing[field] = ''
+        next[subcategoryId] = existing
+        pendingCommentsRef.current = next
+        return next
+      })
+
+      if (!assessmentId) {
+        return true
+      }
+
+      setSavingCommentItems((prev) => {
+        const next = new Set(prev)
+        next.add(String(subcategoryId))
+        return next
+      })
+
+      try {
+        await updateSubcategoryComments({
+          assessmentId,
+          subcategoryId,
+          ...(field === 'publicComment'
+            ? { publicComment: '' }
+            : { internalComment: '' }),
+        })
+
+        setPendingComments((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, subcategoryId)) {
+            return prev
+          }
+          const next = { ...prev }
+          const existing = { ...(next[subcategoryId] || {}) }
+          delete existing[field]
+          if (Object.keys(existing).length === 0) {
+            delete next[subcategoryId]
+          } else {
+            next[subcategoryId] = existing
+          }
+          pendingCommentsRef.current = next
+          return next
+        })
+
+        setLastAutoSavedAt(new Date())
+        return true
+      } catch (saveError) {
+        console.error('Unable to delete comment:', saveError)
+        setToast({
+          type: 'error',
+          message: 'Unable to delete comment. Please try again.',
+        })
+        return false
+      } finally {
+        setSavingCommentItems((prev) => {
+          const next = new Set(prev)
+          next.delete(String(subcategoryId))
+          return next
+        })
+      }
+    },
+    [assessmentId, isCompleted, isCompleting, readOnly]
+  )
+
   const handleComplete = async () => {
     if (!assessmentId) {
       return
@@ -715,11 +1014,12 @@ const PerformAssessment = ({
     setIsCompleting(true)
     setError('')
     try {
-      const saved = await flushPendingResponses()
-      if (!saved) {
+      const savedResponses = await flushPendingResponses()
+      const savedComments = await flushPendingComments()
+      if (!savedResponses || !savedComments) {
         setToast({
           type: 'error',
-          message: 'Unable to save latest responses. Please try again.',
+          message: 'Unable to save latest responses/comments. Please try again.',
         })
         return
       }
@@ -1063,8 +1363,8 @@ const PerformAssessment = ({
             )}
             {!readOnly && !isCompleted && (
               <p className="mt-1 text-xs text-gray-500">
-                {pendingResponseCount > 0
-                  ? `Unsaved changes: ${pendingResponseCount}. Auto-save runs every 30 seconds.`
+                {pendingChangeCount > 0
+                  ? `Unsaved changes: ${pendingChangeCount}. Auto-save runs every 30 seconds.`
                   : lastAutoSavedAt
                   ? `Auto-saved at ${lastAutoSavedAt.toLocaleTimeString('en-US')}`
                   : 'Auto-save runs every 30 seconds.'}
@@ -1119,19 +1419,19 @@ const PerformAssessment = ({
           totalResponsesCount={totalResponsesCount}
           renderGroupRow={(item) => (
             <tr key={item.id} className="border-b border-gray-200 last:border-b-0">
-              <td className="px-4 py-3 w-[55%]">
+              <td className="px-4 py-3 align-top">
                 <div className="font-semibold text-gray-900">{item.title}</div>
                 {item.description && (
                   <p className="text-xs text-gray-600 mt-1">{item.description}</p>
                 )}
               </td>
-              <td className="px-4 py-3 w-[25%]">
+              <td className="px-4 py-3 align-top">
                 <div className="font-semibold text-gray-900">{item.responseLabel}</div>
                 <p className="text-xs text-gray-600 mt-1">
                   {item.responseDescription || 'No description provided.'}
                 </p>
               </td>
-              <td className="px-4 py-3 w-[20%] text-center">
+              <td className="px-4 py-3 align-top text-center">
                 {(() => {
                   const responseId = item.responseId || item.id
                   const linkedInitiativeId = initiativeLinks[responseId]
@@ -1265,6 +1565,30 @@ const PerformAssessment = ({
                   )
                 })()}
               </td>
+              <td className="px-4 py-3 align-middle text-center">
+                {(() => {
+                  const hasPublicComment = Boolean((item.publicComment || '').trim())
+                  const hasInternalComment = Boolean((item.internalComment || '').trim())
+                  const commentTypeLabel = hasPublicComment && hasInternalComment
+                    ? 'Public + Internal'
+                    : hasPublicComment
+                    ? 'Public'
+                    : hasInternalComment
+                    ? 'Internal'
+                    : 'No comments'
+                  return (
+                    <div className="flex items-center justify-center">
+                      <span
+                        title={`Comments: ${commentTypeLabel}`}
+                        aria-label={`Comments: ${commentTypeLabel}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500"
+                      >
+                        <FiMessageSquare className="text-sm" />
+                      </span>
+                    </div>
+                  )
+                })()}
+              </td>
             </tr>
           )}
         />
@@ -1281,7 +1605,11 @@ const PerformAssessment = ({
           setExpandedItems={setExpandedItems}
           selections={selections}
           handleSelect={handleSelect}
+          handleCommentChange={handleCommentChange}
+          handleSaveComment={handleSaveComment}
+          handleDeleteComment={handleDeleteComment}
           savingItems={savingItems}
+          savingCommentItems={savingCommentItems}
           isCompleted={isCompleted}
           isReadOnly={readOnly}
           getBadgeClasses={getBadgeClasses}
@@ -1299,6 +1627,7 @@ const PerformAssessment = ({
         onDelete={handleDeleteInitiativeFromAssessment}
         onLinkedAssessmentClick={handleLinkedAssessmentClick}
         linkedAssessmentId={assessmentId}
+        showTemplateActions={!isCompleted}
       />
       <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>

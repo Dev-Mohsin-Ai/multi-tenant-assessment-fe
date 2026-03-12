@@ -22,6 +22,7 @@ const AppSelect = ({
   isClearable = false,
   menuPlacement = 'auto',
   size = 'md',
+  formatOptionLabel,
 }) => {
   const normalizedOptions = useMemo(() => options.map(toOption), [options])
   const selectedOption = useMemo(
@@ -42,6 +43,7 @@ const AppSelect = ({
       isClearable={isClearable}
       menuPlacement={menuPlacement}
       className={className}
+      formatOptionLabel={formatOptionLabel}
       menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
       styles={{
         menuPortal: (base) => ({ ...base, zIndex: 9999 }),

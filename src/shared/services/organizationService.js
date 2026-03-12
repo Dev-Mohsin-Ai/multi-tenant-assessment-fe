@@ -16,7 +16,12 @@ export async function getOrganizationById(organizationId) {
 }
 
 export async function updateOrganization(organizationId, payload) {
-    const response = await api.patch(`/organizations/${organizationId}`, payload);
+    const response = await api.put(`/organizations/${organizationId}`, payload);
+    return response.data;
+}
+
+export async function toggleFavoriteOrganization(organizationId) {
+    const response = await api.post(`/organizations/${organizationId}/favorite`);
     return response.data;
 }
 

@@ -16,12 +16,12 @@ export const createInitiative = async (payload) => {
 }
 
 export const updateInitiative = async (initiativeId, payload) => {
-  const response = await api.put(`/initiatives/${initiativeId}/`, payload)
+  const response = await api.put(`/initiatives/${initiativeId}`, payload)
   return response.data
 }
 
 export const deleteInitiative = async (initiativeId) => {
-  const response = await api.delete(`/initiatives/${initiativeId}/`)
+  const response = await api.delete(`/initiatives/${initiativeId}`)
   return response.data
 }
 
@@ -42,5 +42,30 @@ export const unlinkSubcategory = async (initiativeId, subcategoryId) => {
   const response = await api.delete(
     `/initiatives/${initiativeId}/unlink-subcategories/${subcategoryId}/`
   )
+  return response.data
+}
+
+export const saveInitiativeAsTemplate = async (initiativeId) => {
+  const response = await api.post(`/initiatives/${initiativeId}/save-template`)
+  return response.data
+}
+
+export const getInitiativeTemplates = async () => {
+  const response = await api.get('/initiatives/templates/')
+  return response.data
+}
+
+export const getInitiativeTemplateById = async (templateId) => {
+  const response = await api.get(`/initiatives/templates/${templateId}`)
+  return response.data
+}
+
+export const deleteInitiativeTemplate = async (templateId) => {
+  const response = await api.delete(`/initiatives/templates/${templateId}`)
+  return response.data
+}
+
+export const applyInitiativeTemplate = async (initiativeId, templateId) => {
+  const response = await api.post(`/initiatives/${initiativeId}/apply-template/${templateId}`)
   return response.data
 }

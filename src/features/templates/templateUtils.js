@@ -131,7 +131,6 @@ export const buildPayload = (template) => ({
               return {
                 response_type: value,
                 description: existing?.description || '',
-                score: Number(existing?.score ?? (value === 'yes' ? 10 : 0)) || 0,
               }
             })
       return {
@@ -145,7 +144,6 @@ export const buildPayload = (template) => ({
         response_options: response_options.map((option, optionIndex) => ({
           response_type: option.response_type,
           description: option.description || '',
-          score: Number(option.score) || 0,
           order: optionIndex,
         })),
       }

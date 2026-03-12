@@ -50,13 +50,14 @@ const CompletedSummary = ({
                 {responseGroups[group.key].length}
               </span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full w-full text-sm table-fixed">
+            <div>
+              <table className="w-full text-sm table-auto">
                 <thead>
                   <tr className="text-left text-xs text-gray-600 border-b border-gray-200">
-                    <th className="px-4 py-2 w-[55%]">Title &amp; Description</th>
-                    <th className="px-4 py-2 w-[25%]">Response</th>
-                    <th className="px-4 py-2 w-[20%] text-center">Initiative</th>
+                    <th className="px-4 py-2">Title &amp; Description</th>
+                    <th className="px-4 py-2">Response</th>
+                    <th className="px-4 py-2 text-center">Initiative</th>
+                    <th className="px-4 py-2 text-center">Comments</th>
                   </tr>
                 </thead>
                 <tbody>

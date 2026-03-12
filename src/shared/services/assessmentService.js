@@ -33,6 +33,26 @@ export async function updateSubcategoryResponse({
     return response.data;
 }
 
+export async function updateSubcategoryComments({
+    assessmentId,
+    subcategoryId,
+    internalComment,
+    publicComment,
+}) {
+    const payload = {};
+    if (internalComment !== undefined) {
+        payload.internal_comment = internalComment;
+    }
+    if (publicComment !== undefined) {
+        payload.public_comment = publicComment;
+    }
+    const response = await api.put(
+        `/assessments/${assessmentId}/subcategories/${subcategoryId}/comments`,
+        payload
+    );
+    return response.data;
+}
+
 export async function completeAssessment(assessmentId) {
     const response = await api.post(`/assessments/${assessmentId}/complete`);
     return response.data;
