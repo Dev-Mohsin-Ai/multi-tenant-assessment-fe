@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import DashboardHeader from './DashboardHeader'
 import SideTopbar from './SideTopbar'
@@ -9,6 +9,12 @@ import { SiRoadmapdotsh } from 'react-icons/si'
 import { HiTemplate } from "react-icons/hi";
 import { FiTarget } from 'react-icons/fi'
 import { RiAdminLine } from 'react-icons/ri'
+import {
+  hasAuthToken,
+  hasResolvedAdminAccess,
+  refreshCurrentUserSession,
+  isCurrentUserAdmin,
+} from '../utils/authSession'
 
 const WorkspaceLayout = ({
   children,
@@ -21,17 +27,39 @@ const WorkspaceLayout = ({
 }) => {
   const navigate = useNavigate()
   const location = useLocation()
+  const hasToken = hasAuthToken()
+  const [resolvedAdmin, setResolvedAdmin] = useState(() => (hasToken ? isCurrentUserAdmin() : false))
+  const showAdmin = hasToken && resolvedAdmin
+
+  useEffect(() => {
+    let isActive = true
+
+    if (!hasToken || hasResolvedAdminAccess()) {
+      return undefined
+    }
+
+    refreshCurrentUserSession().then((allowed) => {
+      if (isActive) {
+        setResolvedAdmin(Boolean(allowed))
+      }
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [hasToken])
 
   const navItems = useMemo(
-    () => [
-      { id: 'clients', label: 'Clients', icon: <FaUsers/>, path: clientsPath },
-      { id: 'assessments', label: 'Assessments', icon: <MdAssessment />, iconSize: 26, path: assessmentsPath },
-      { id: 'roadmap', label: 'Roadmap', icon: <SiRoadmapdotsh />, path: '/roadmap' },
-      { id: 'goals', label: 'Goals', icon: <FiTarget />, path: '/goals' },
-      { id: 'templates', label: 'Templates', icon: <HiTemplate />, iconSize: 26, path: templatesPath },
-      { id: 'admin', label: 'Admin', icon: <RiAdminLine />, path: '/admin' },
-    ],
-    [assessmentsPath, clientsPath, templatesPath]
+    () =>
+      [
+        { id: 'clients', label: 'Clients', icon: <FaUsers/>, path: clientsPath },
+        { id: 'assessments', label: 'Assessments', icon: <MdAssessment />, iconSize: 26, path: assessmentsPath },
+        { id: 'roadmap', label: 'Roadmap', icon: <SiRoadmapdotsh />, path: '/roadmap' },
+        { id: 'goals', label: 'Goals', icon: <FiTarget />, path: '/goals' },
+        { id: 'templates', label: 'Templates', icon: <HiTemplate />, iconSize: 26, path: templatesPath },
+        showAdmin ? { id: 'admin', label: 'Admin', icon: <RiAdminLine />, path: '/admin' } : null,
+      ].filter(Boolean),
+    [assessmentsPath, clientsPath, showAdmin, templatesPath]
   )
 
   const resolvedActiveId = useMemo(() => {

@@ -208,6 +208,13 @@ const Assessment = () => {
               refreshAssessments(activeOrganization.id)
             }
           }}
+          onDelete={() => {
+            setShowPerform(false)
+            setActiveAssessmentId(null)
+            if (activeOrganization?.id) {
+              refreshAssessments(activeOrganization.id)
+            }
+          }}
         />
       ) : (
         <>

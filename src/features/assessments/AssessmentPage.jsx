@@ -35,6 +35,10 @@ const AssessmentPage = () => {
     navigate(backTarget)
   }
 
+  const handleDelete = () => {
+    navigate(backTarget)
+  }
+
   return (
     <WorkspaceLayout
       activeLabel="Assessments"
@@ -49,6 +53,7 @@ const AssessmentPage = () => {
           assessmentId={assessmentId}
           onBack={handleBack}
           onComplete={handleComplete}
+          onDelete={handleDelete}
           onLoaded={handleLoaded}
         />
       </div>

@@ -1,18 +1,44 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import HeaderLogo from '../../assets/HeaderLogo.png'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/useAppStore'
+import {
+  clearAuthSession,
+  hasAuthToken,
+  hasResolvedAdminAccess,
+  refreshCurrentUserSession,
+  isCurrentUserAdmin,
+} from '../utils/authSession'
 
 const Header = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const clearActiveOrganization = useAppStore((state) => state.clearActiveOrganization)
-  const hasToken = Boolean(localStorage.getItem('token'))
+  const hasToken = hasAuthToken()
+  const [resolvedAdmin, setResolvedAdmin] = useState(() => (hasToken ? isCurrentUserAdmin() : false))
   const showLogout = hasToken && location.pathname.startsWith('/clients/select')
-  const showAdmin = hasToken
+  const showAdmin = hasToken && resolvedAdmin
+
+  useEffect(() => {
+    let isActive = true
+
+    if (!hasToken || hasResolvedAdminAccess()) {
+      return undefined
+    }
+
+    refreshCurrentUserSession().then((allowed) => {
+      if (isActive) {
+        setResolvedAdmin(Boolean(allowed))
+      }
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [hasToken])
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
+    clearAuthSession()
     clearActiveOrganization?.()
     navigate('/login')
   }

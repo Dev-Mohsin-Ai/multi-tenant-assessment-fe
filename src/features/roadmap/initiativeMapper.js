@@ -1,5 +1,4 @@
 import {
-  CONTACTS,
   PRIORITY_FROM_API,
   PRIORITY_TO_API,
   QUARTERS,
@@ -9,7 +8,7 @@ import {
   createId,
 } from './initiativeConstants'
 
-const DEFAULT_CONTACT = CONTACTS[0] || { id: 1, full_name: 'Contact' }
+const DEFAULT_CONTACT = { id: null, full_name: 'Unassigned contact' }
 
 const formatResponseTypeLabel = (value) =>
   String(value || '')
@@ -201,7 +200,6 @@ export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
     DEFAULT_CONTACT.id
   const contactUser =
     initiative.contact_user ||
-    CONTACTS.find((contact) => Number(contact.id) === Number(contactId)) ||
     DEFAULT_CONTACT
 
   const linkedItemsFromApi = Array.isArray(initiative.linked_subcategories)
@@ -277,7 +275,7 @@ export const mapInitiativeToApi = (initiative, organizationId, options = {}) => 
     priority: PRIORITY_TO_API[initiative.priority] ?? 2,
     schedule_year: initiative.isScheduled ? Number(initiative.year) : null,
     schedule_quarter: initiative.isScheduled ? initiative.quarter : null,
-    contact_id: initiative.contactId ?? DEFAULT_CONTACT.id,
+    contact_id: initiative.contactId ?? null,
     organization_id: Number.isNaN(resolvedOrgId) ? null : resolvedOrgId,
     one_time_fees: (initiative.oneTimeFees || []).map((fee) => ({
       title: fee.title || '',

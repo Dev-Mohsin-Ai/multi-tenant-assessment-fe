@@ -57,3 +57,8 @@ export async function completeAssessment(assessmentId) {
     const response = await api.post(`/assessments/${assessmentId}/complete`);
     return response.data;
 }
+
+export async function deleteAssessment(assessmentId) {
+    const response = await api.delete(`/assessments/${assessmentId}`);
+    return response.data;
+}

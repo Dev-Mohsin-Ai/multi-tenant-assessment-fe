@@ -8,6 +8,7 @@ import { FiTarget } from "react-icons/fi";
 import { HiTemplate } from "react-icons/hi";
 import { Link, useNavigate } from "react-router-dom";
 import { googleLogin, login } from "../../shared/services/authService";
+import { persistAuthSession, refreshCurrentUserSession } from "../../shared/utils/authSession";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -31,7 +32,8 @@ const Login = () => {
 
     try {
       const data = await googleLogin(response.credential);
-      localStorage.setItem("token", data.access_token);
+      persistAuthSession(data);
+      await refreshCurrentUserSession();
       navigate("/clients/select");
     } catch (err) {
       console.error("Google login failed:", err.response?.data || err.message);
@@ -94,7 +96,8 @@ const Login = () => {
 
       console.log("Login success:", data);
 
-      localStorage.setItem("token", data.access_token);
+      persistAuthSession(data);
+      await refreshCurrentUserSession();
       navigate("/clients/select");
 
     } catch (err) {

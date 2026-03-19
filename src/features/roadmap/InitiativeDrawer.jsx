@@ -17,13 +17,13 @@ import { useNavigate } from 'react-router-dom'
 import {
   STATUS_OPTIONS,
   PRIORITY_OPTIONS,
-  CONTACTS,
   QUARTERS,
   createId,
   getQuarterFromDate,
   getQuarterStartDate,
 } from './initiativeConstants'
 import { getGoals } from '../../shared/services/goalService'
+import { getOrganizationUsers } from '../../shared/services/organizationService'
 import {
   applyInitiativeTemplate,
   getInitiativeById,
@@ -592,7 +592,7 @@ const InitiativeDrawer = ({
       endDate: startDate,
       status: 'Open',
       priority: 'Medium',
-      contactId: CONTACTS[0]?.id || 1,
+      contactId: null,
       goalId: null,
       isScheduled: hasPresetSchedule,
       year: defaultYear,
@@ -618,7 +618,9 @@ const InitiativeDrawer = ({
   }, [years])
 
   const [availableGoals, setAvailableGoals] = useState([])
+  const [availableContacts, setAvailableContacts] = useState([])
   const [loadingGoals, setLoadingGoals] = useState(false)
+  const [loadingContacts, setLoadingContacts] = useState(false)
   const [goalError, setGoalError] = useState('')
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
   const [loadingTemplates, setLoadingTemplates] = useState(false)
@@ -660,34 +662,64 @@ const InitiativeDrawer = ({
         return
       }
       setLoadingGoals(true)
+      setLoadingContacts(true)
       setGoalError('')
     })
 
-    getGoals({ organization_id: organizationId })
-      .then((data) => {
-        const list = Array.isArray(data) ? data : data?.goals || []
+    Promise.all([
+      getGoals({ organization_id: organizationId }),
+      getOrganizationUsers(organizationId),
+    ])
+      .then(([goalsData, contactsData]) => {
         if (!isActive) {
           return
         }
-        setAvailableGoals(list)
+        const goalList = Array.isArray(goalsData) ? goalsData : goalsData?.goals || []
+        const contactList = (Array.isArray(contactsData) ? contactsData : contactsData?.users || [])
+          .filter((item) => item && typeof item === 'object')
+          .map((item) => ({
+            id: item.id,
+            full_name: item.full_name || item.email || `User ${item.id}`,
+          }))
+
+        setAvailableGoals(goalList)
+        setAvailableContacts(contactList)
       })
       .catch(() => {
         if (!isActive) {
           return
         }
         setGoalError('Unable to load goals')
+        setAvailableContacts([])
       })
       .finally(() => {
         if (!isActive) {
           return
         }
         setLoadingGoals(false)
+        setLoadingContacts(false)
       })
 
     return () => {
       isActive = false
     }
   }, [activeOrganizationId, open])
+
+  useEffect(() => {
+    if (!open || availableContacts.length === 0) {
+      return
+    }
+
+    setForm((prev) => {
+      if (prev.contactId !== null && prev.contactId !== undefined && String(prev.contactId).trim()) {
+        return prev
+      }
+      return {
+        ...prev,
+        contactId: availableContacts[0].id,
+      }
+    })
+  }, [availableContacts, open])
 
   useEffect(() => {
     if (!open) {
@@ -1379,12 +1411,14 @@ const InitiativeDrawer = ({
                   <FiUser /> CONTACT
                 </label>
                 <AppSelect
-                  options={CONTACTS.map((contact) => ({
+                  options={availableContacts.map((contact) => ({
                     value: contact.id,
                     label: contact.full_name,
                   }))}
                   value={form.contactId ?? ''}
                   onChange={(nextValue) => handleChange('contactId', Number(nextValue))}
+                  placeholder={loadingContacts ? 'Loading contacts...' : 'Select contact'}
+                  isDisabled={loadingContacts || availableContacts.length === 0}
                   className="w-full"
                 />
               </div>

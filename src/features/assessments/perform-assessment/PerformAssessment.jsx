@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { FiArrowLeft, FiDownload, FiMessageSquare } from 'react-icons/fi'
+import { FiAlertTriangle, FiArrowLeft, FiDownload, FiMessageSquare } from 'react-icons/fi'
 import {
   completeAssessment,
+  deleteAssessment,
   getAssessmentById,
   updateSubcategoryComments,
   updateSubcategoryResponse,
@@ -277,6 +278,7 @@ const PerformAssessment = ({
   assessmentId,
   onProgress,
   onComplete,
+  onDelete,
   onLoaded,
   readOnly = false,
   focusResponseId = null,
@@ -296,6 +298,8 @@ const PerformAssessment = ({
   const [savingCommentItems, setSavingCommentItems] = useState(() => new Set())
   const [lastAutoSavedAt, setLastAutoSavedAt] = useState(null)
   const [isCompleting, setIsCompleting] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [responseFilter, setResponseFilter] = useState('all')
   const [initiatives, setInitiatives] = useState([])
   const [initiativeLinks, setInitiativeLinks] = useState(() =>
@@ -1066,6 +1070,29 @@ const PerformAssessment = ({
     }
   }
 
+  const handleDeleteAssessment = async () => {
+    if (!assessmentId || readOnly || isDeleting) {
+      return
+    }
+
+    setIsDeleting(true)
+    setError('')
+
+    try {
+      await deleteAssessment(assessmentId)
+      saveLinksForAssessment(assessmentId, {})
+      setToast({ type: 'success', message: 'Assessment deleted.' })
+      setIsDeleteDialogOpen(false)
+      onDelete?.(assessmentId)
+    } catch (deleteError) {
+      console.error('Unable to delete assessment:', deleteError)
+      setError('Unable to delete assessment')
+      setToast({ type: 'error', message: 'Unable to delete assessment' })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const sortedInitiatives = useMemo(() => {
     return initiatives
       .slice()
@@ -1395,6 +1422,16 @@ const PerformAssessment = ({
               <FiDownload className="text-base" />
               {isDownloadingReport ? 'Downloading...' : 'Download report'}
             </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => setIsDeleteDialogOpen(true)}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-md border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 inline-flex items-center gap-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete assessment'}
+              </button>
+            )}
             {onBack && (
               <button
                 type="button"
@@ -1633,6 +1670,46 @@ const PerformAssessment = ({
         linkedAssessmentId={assessmentId}
         showTemplateActions={!isCompleted}
       />
+      {isDeleteDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(12,19,34,0.45)] px-4">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white shadow-2xl">
+            <div className="border-b border-gray-100 px-6 py-5">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-red-600">
+                  <FiAlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">Delete Assessment</h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    This will permanently remove the assessment and its associated data.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 text-sm text-gray-600">
+              This action cannot be undone.
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setIsDeleteDialogOpen(false)}
+                disabled={isDeleting}
+                className="rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAssessment}
+                disabled={isDeleting}
+                className="rounded-md border border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   )

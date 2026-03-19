@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearAuthSession } from "../utils/authSession";
 
 const DEFAULT_BASE_URL = "https://multi-assessment-pro-be-production.up.railway.app";
 const rawBaseUrl = import.meta.env.VITE_API_URL || DEFAULT_BASE_URL;
@@ -28,7 +29,7 @@ api.interceptors.response.use(
         );
 
         if (status === 401 && !isAuthRequest) {
-            localStorage.removeItem("token");
+            clearAuthSession();
             if (window.location.pathname !== "/login") {
                 window.location.assign("/login");
             }

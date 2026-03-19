@@ -1,11 +1,40 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import HeaderLogo from '../../assets/HeaderLogo.png'
 import { useNavigate } from 'react-router-dom';
+import {
+  clearAuthSession,
+  hasAuthToken,
+  hasResolvedAdminAccess,
+  refreshCurrentUserSession,
+  isCurrentUserAdmin,
+} from '../utils/authSession';
 
 const DashboardHeader = () => {
   const navigate = useNavigate();
+  const hasToken = hasAuthToken()
+  const [resolvedAdmin, setResolvedAdmin] = useState(() => (hasToken ? isCurrentUserAdmin() : false))
+  const showAdmin = hasToken && resolvedAdmin
+
+  useEffect(() => {
+    let isActive = true
+
+    if (!hasToken || hasResolvedAdminAccess()) {
+      return undefined
+    }
+
+    refreshCurrentUserSession().then((allowed) => {
+      if (isActive) {
+        setResolvedAdmin(Boolean(allowed))
+      }
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [hasToken])
+
   const handleLogout = () => {
-    localStorage.removeItem('token')
+    clearAuthSession()
     navigate('/login')
   }
 
@@ -28,13 +57,15 @@ const DashboardHeader = () => {
             Atlas
           </h1>
         </div>
-        <button
-          type="button"
-          onClick={() => navigate('/admin')}
-          className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
-        >
-          Admin
-        </button>
+        {showAdmin ? (
+          <button
+            type="button"
+            onClick={() => navigate('/admin')}
+            className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+          >
+            Admin
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={handleLogout}
@@ -64,13 +95,15 @@ const DashboardHeader = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => navigate('/admin')}
-            className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
-          >
-            Admin
-          </button>
+          {showAdmin ? (
+            <button
+              type="button"
+              onClick={() => navigate('/admin')}
+              className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+            >
+              Admin
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleLogout}

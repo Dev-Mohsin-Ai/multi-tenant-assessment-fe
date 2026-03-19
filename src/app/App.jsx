@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import Header from '../shared/components/Header'
 import Signup from '../features/auth/Signup'
 import Login from '../features/auth/Login'
@@ -12,18 +12,59 @@ import RoadmapPage from '../features/roadmap/RoadmapPage'
 import GoalsPage from '../features/goals/GoalsPage'
 import AdminPage from '../features/admin/AdminPage'
 import { useAppStore } from '../shared/store/useAppStore'
+import {
+  hasAuthToken,
+  hasResolvedAdminAccess,
+  refreshCurrentUserSession,
+  isCurrentUserAdmin,
+} from '../shared/utils/authSession'
 
 const RequireAuth = ({ children }) => {
-  const token = localStorage.getItem('token')
-  if (!token) {
+  if (!hasAuthToken()) {
     return <Navigate to='/login' replace />
   }
   return children
 }
 
 const PublicRoute = ({ children }) => {
-  const token = localStorage.getItem('token')
-  if (token) {
+  if (hasAuthToken()) {
+    return <Navigate to='/clients/select' replace />
+  }
+  return children
+}
+
+const RequireAdmin = ({ children }) => {
+  const hasToken = hasAuthToken()
+  const [isAllowed, setIsAllowed] = useState(() => (hasToken ? isCurrentUserAdmin() : false))
+  const [isChecking, setIsChecking] = useState(() => hasToken && !hasResolvedAdminAccess())
+
+  useEffect(() => {
+    let isActive = true
+
+    if (!hasToken || hasResolvedAdminAccess()) {
+      return undefined
+    }
+
+    refreshCurrentUserSession().then((allowed) => {
+      if (!isActive) {
+        return
+      }
+      setIsAllowed(Boolean(allowed))
+      setIsChecking(false)
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [hasToken])
+
+  if (!hasToken) {
+    return <Navigate to='/login' replace />
+  }
+  if (isChecking) {
+    return null
+  }
+  if (!isAllowed) {
     return <Navigate to='/clients/select' replace />
   }
   return children
@@ -112,9 +153,9 @@ const App = () => {
         <Route
           path='/admin'
           element={
-            <RequireAuth>
+            <RequireAdmin>
               <AdminPage />
-            </RequireAuth>
+            </RequireAdmin>
           }
         />
         <Route
