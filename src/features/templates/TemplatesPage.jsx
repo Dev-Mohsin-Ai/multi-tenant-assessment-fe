@@ -6,7 +6,7 @@ import {
   getTemplates,
   updateTemplate,
 } from '../../shared/services/templateService'
-import { FiAlertCircle, FiCheckCircle } from 'react-icons/fi'
+import { FiAlertCircle, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi'
 import TemplateBrowse from './TemplateBrowse'
 import TemplateEditor from './TemplateEditor'
 import TemplatesHeader from './TemplatesHeader'
@@ -39,6 +39,7 @@ const TemplatesPage = () => {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [templatePendingDelete, setTemplatePendingDelete] = useState(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [activeTab, setActiveTab] = useState('browse')
@@ -504,16 +505,17 @@ const TemplatesPage = () => {
   }, [activeTab, hasUnsavedChanges, isAutoSaving, lastAutoSavedAt])
 
   const handleSave = () => saveTemplate({ silent: false })
-  const handleDeleteConfirm = async () => {
-    if (!selectedTemplateId) {
+  const handleDeleteConfirm = async (templateId = selectedTemplateId) => {
+    if (!templateId) {
       setError('Select a template to delete.')
       return
     }
     setDeleting(true)
     setError('')
     try {
-      await deleteTemplate(selectedTemplateId)
+      await deleteTemplate(templateId)
       setSuccess('Template deleted successfully!')
+      setTemplatePendingDelete(null)
       handleNewTemplate()
       await loadTemplates()
       setActiveTab('browse')
@@ -570,6 +572,8 @@ const TemplatesPage = () => {
               onSearchChange={setSearchQuery}
               onSelectTemplate={handleSelectTemplate}
               onNewTemplate={handleNewTemplate}
+              onDeleteTemplate={setTemplatePendingDelete}
+              deletingTemplateId={deleting ? templatePendingDelete?.id : null}
             />
           ) : (
             <TemplateEditor
@@ -601,6 +605,46 @@ const TemplatesPage = () => {
             />
           )}
         </div>
+        {templatePendingDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(12,19,34,0.45)] px-4">
+            <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white shadow-2xl">
+              <div className="border-b border-gray-100 px-6 py-5">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-red-600">
+                    <FiAlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-900">Delete Template</h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Delete <span className="font-medium text-gray-900">{templatePendingDelete.title || `Template ${templatePendingDelete.id}`}</span>?
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="px-6 py-4 text-sm text-gray-600">
+                This will mark the template inactive and remove it from active browse results.
+              </div>
+              <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => setTemplatePendingDelete(null)}
+                  disabled={deleting}
+                  className="rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteConfirm(templatePendingDelete.id)}
+                  disabled={deleting}
+                  className="rounded-md border border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </WorkspaceLayout>
   )

@@ -14,8 +14,22 @@ import { formatScorePercent } from '../../shared/utils/scoreUtils'
 const ClientDashboard = () => {
   const { organizationId } = useParams()
   const navigate = useNavigate()
+  const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
+  const activeOrganizationName = useAppStore((state) => state.activeOrganizationName)
   const setActiveOrganization = useAppStore((state) => state.setActiveOrganization)
-  const [organization, setOrganization] = useState(null)
+  const [organization, setOrganization] = useState(() => {
+    if (
+      organizationId &&
+      activeOrganizationId &&
+      String(organizationId) === String(activeOrganizationId)
+    ) {
+      return {
+        id: organizationId,
+        name: activeOrganizationName || '',
+      }
+    }
+    return null
+  })
   const [assessments, setAssessments] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -97,7 +111,14 @@ const ClientDashboard = () => {
       clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
     }
-  }, [navigate, organizationId, setActiveOrganization, statusFilter])
+  }, [
+    activeOrganizationId,
+    activeOrganizationName,
+    navigate,
+    organizationId,
+    setActiveOrganization,
+    statusFilter,
+  ])
 
   const getAssessmentId = (assessment) =>
     assessment.id || assessment.assessment_id || assessment.assessmentId

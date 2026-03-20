@@ -20,6 +20,38 @@ import {
   SEGMENT_PRESETS,
 } from '../constants/segments'
 
+const ORG_TOPBAR_CACHE_KEY = 'topbarOrganizationById'
+
+const readOrganizationCache = () => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ORG_TOPBAR_CACHE_KEY) || '{}')
+    return raw && typeof raw === 'object' ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
+const getCachedOrganization = (organizationId) => {
+  if (!organizationId) {
+    return null
+  }
+  const cache = readOrganizationCache()
+  return cache[String(organizationId)] || null
+}
+
+const writeCachedOrganization = (organizationId, organization) => {
+  if (!organizationId || !organization || typeof organization !== 'object') {
+    return
+  }
+  try {
+    const cache = readOrganizationCache()
+    cache[String(organizationId)] = organization
+    localStorage.setItem(ORG_TOPBAR_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    // ignore cache write failures
+  }
+}
+
 const SEGMENT_ICONS = {
   [NOT_ASSIGNED_VALUE]: FiMinusCircle,
   TRANSFORM: FiRefreshCw,
@@ -40,13 +72,19 @@ const renderSegmentOption = (option) => {
 
 const TopBar = ({ activeLabel, clientName = 'Client' }) => {
   const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
-  const [organization, setOrganization] = useState(null)
+  const [organization, setOrganization] = useState(() =>
+    getCachedOrganization(activeOrganizationId)
+  )
   const [savingFavorite, setSavingFavorite] = useState(false)
   const [savingAssignment, setSavingAssignment] = useState(false)
 
   const normalizedLabel = String(activeLabel || '').trim().toLowerCase()
   const isAdminTab = normalizedLabel === 'admin' || normalizedLabel === 'administration'
   const showClientControls = Boolean(activeOrganizationId) && !isAdminTab
+
+  useEffect(() => {
+    setOrganization(getCachedOrganization(activeOrganizationId))
+  }, [activeOrganizationId])
 
   useEffect(() => {
     if (!showClientControls) {
@@ -60,10 +98,11 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
         const resolved = payload?.organization || payload
         if (isMounted) {
           setOrganization(resolved || null)
+          writeCachedOrganization(activeOrganizationId, resolved || null)
         }
       } catch {
         if (isMounted) {
-          setOrganization(null)
+          setOrganization((prev) => prev ?? getCachedOrganization(activeOrganizationId))
         }
       }
     }
@@ -105,13 +144,25 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
     }
     const nextFavorite = !isFavorite
     setSavingFavorite(true)
-    setOrganization((prev) => ({ ...(prev || {}), is_favorite: nextFavorite }))
+    setOrganization((prev) => {
+      const next = { ...(prev || {}), is_favorite: nextFavorite }
+      writeCachedOrganization(activeOrganizationId, next)
+      return next
+    })
     try {
       const payload = await toggleFavoriteOrganization(activeOrganizationId)
       const updated = payload?.organization || payload
-      setOrganization((prev) => ({ ...(prev || {}), ...(updated || {}) }))
+      setOrganization((prev) => {
+        const next = { ...(prev || {}), ...(updated || {}) }
+        writeCachedOrganization(activeOrganizationId, next)
+        return next
+      })
     } catch {
-      setOrganization((prev) => ({ ...(prev || {}), is_favorite: isFavorite }))
+      setOrganization((prev) => {
+        const next = { ...(prev || {}), is_favorite: isFavorite }
+        writeCachedOrganization(activeOrganizationId, next)
+        return next
+      })
     } finally {
       setSavingFavorite(false)
     }
@@ -131,7 +182,11 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
       .trim()
       .toUpperCase()
     setSavingAssignment(true)
-    setOrganization((prev) => ({ ...(prev || {}), segment: nextSegment }))
+    setOrganization((prev) => {
+      const next = { ...(prev || {}), segment: nextSegment }
+      writeCachedOrganization(activeOrganizationId, next)
+      return next
+    })
     try {
       const payload = await updateOrganization(activeOrganizationId, {
         name: organization?.name || clientName || `Organization ${activeOrganizationId}`,
@@ -139,18 +194,40 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
         segment: nextSegment,
       })
       const updated = payload?.organization || payload
-      setOrganization((prev) => ({ ...(prev || {}), ...(updated || {}) }))
+      setOrganization((prev) => {
+        const next = { ...(prev || {}), ...(updated || {}) }
+        writeCachedOrganization(activeOrganizationId, next)
+        return next
+      })
     } catch {
-      setOrganization((prev) => ({ ...(prev || {}), segment: previousSegment }))
+      setOrganization((prev) => {
+        const next = { ...(prev || {}), segment: previousSegment }
+        writeCachedOrganization(activeOrganizationId, next)
+        return next
+      })
     } finally {
       setSavingAssignment(false)
     }
   }
 
   return (
-    <div className="w-full border-b border-gray-200 bg-white px-4 pb-4 pt-4 md:px-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold text-gray-900">{clientName}</h1>
+    <div className="w-full border-b border-gray-200 bg-white px-4 py-3 md:px-6">
+      <div className="flex min-h-[2.75rem] items-center gap-3 min-w-0">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <h1
+            className="min-w-0 truncate text-xl font-semibold text-gray-900"
+            title={clientName}
+          >
+            {clientName}
+          </h1>
+          <span className="shrink-0 text-gray-400">/</span>
+          <h2
+            className="min-w-0 truncate text-base font-semibold text-gray-700"
+            title={activeLabel}
+          >
+            {activeLabel}
+          </h2>
+        </div>
         {showClientControls ? (
           <>
             <button
@@ -167,7 +244,7 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
             >
               <FiStar className="h-4 w-4" />
             </button>
-            <div className="min-w-45">
+            <div className="w-44 shrink-0">
               <AppSelect
                 options={assignmentOptions}
                 value={selectedAssignment}
@@ -181,8 +258,6 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
             </div>
           </>
         ) : null}
-        <span className="text-gray-400">/</span>
-        <h2 className="text-base font-semibold text-gray-700">{activeLabel}</h2>
       </div>
     </div>
   )

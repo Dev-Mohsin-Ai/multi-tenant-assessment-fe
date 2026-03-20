@@ -1,5 +1,5 @@
 import React from 'react'
-import { FiEdit2, FiFileText, FiPlus, FiSearch } from 'react-icons/fi'
+import { FiEdit2, FiFileText, FiPlus, FiSearch, FiTrash2 } from 'react-icons/fi'
 
 const TemplateBrowse = ({
   loading,
@@ -8,6 +8,8 @@ const TemplateBrowse = ({
   onSearchChange,
   onSelectTemplate,
   onNewTemplate,
+  onDeleteTemplate,
+  deletingTemplateId = null,
 }) => {
   return (
     <div className="max-w-5xl mx-auto">
@@ -74,10 +76,22 @@ const TemplateBrowse = ({
                         e.stopPropagation()
                         onSelectTemplate(template)
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-all duration-200"
+                      className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-all duration-200"
                       title="Edit template"
                     >
                       <FiEdit2 />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDeleteTemplate?.(template)
+                      }}
+                      disabled={deletingTemplateId === template.id}
+                      className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60"
+                      title="Delete template"
+                    >
+                      <FiTrash2 />
                     </button>
                   </div>
                 </div>
