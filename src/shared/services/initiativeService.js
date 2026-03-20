@@ -25,6 +25,11 @@ export const deleteInitiative = async (initiativeId) => {
   return response.data
 }
 
+export const unlinkInitiativeFromGoal = async (initiativeId) => {
+  const response = await api.delete(`/initiatives/${initiativeId}/goal`)
+  return response.data
+}
+
 export const getLinkedSubcategories = async (initiativeId) => {
   const response = await api.get(`/initiatives/${initiativeId}/linked-subcategories/`)
   return response.data

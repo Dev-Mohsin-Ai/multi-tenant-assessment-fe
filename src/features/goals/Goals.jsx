@@ -17,6 +17,7 @@ import {
   deleteInitiative,
   getInitiativeById,
   getInitiatives,
+  unlinkInitiativeFromGoal,
   updateInitiative,
 } from '../../shared/services/initiativeService'
 import {
@@ -915,18 +916,9 @@ const Goals = () => {
     }
 
     try {
-      const detailed = await getInitiativeById(existing.id).catch(() => null)
-      const sourceInitiative = detailed ? mapInitiativeFromApi(detailed) : existing
-      const updated = await updateInitiative(
-        existing.id,
-        mapInitiativeToApi(sourceInitiative, organizationId, { goalId: null })
-      )
-      const mapped = mapInitiativeFromApi(updated)
-      if (mapped.goalId !== null && mapped.goalId !== undefined) {
-        throw new Error('unlink-not-persisted')
-      }
+      await unlinkInitiativeFromGoal(existing.id)
       const normalizedMapped = {
-        ...mapped,
+        ...existing,
         goalId: null,
       }
       upsertAvailableInitiatives([normalizedMapped])
