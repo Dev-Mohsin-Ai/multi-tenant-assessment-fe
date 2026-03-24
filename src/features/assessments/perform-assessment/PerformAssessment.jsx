@@ -11,6 +11,7 @@ import {
 import {
   getInitiatives,
   getInitiativeById,
+  createInitiative,
   updateInitiative,
   deleteInitiative,
 } from '../../../shared/services/initiativeService'
@@ -59,6 +60,35 @@ const toArray = (value) => {
 
 const cleanText = (value) => String(value ?? '').trim()
 
+const normalizeResponseOrderKey = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+
+const moveNoAfterAtRisk = (items, getLabel) => {
+  if (!Array.isArray(items) || items.length < 2) {
+    return Array.isArray(items) ? items : []
+  }
+
+  const atRiskIndex = items.findIndex(
+    (item) => normalizeResponseOrderKey(getLabel(item)) === 'at_risk'
+  )
+  const noIndex = items.findIndex(
+    (item) => normalizeResponseOrderKey(getLabel(item)) === 'no'
+  )
+
+  if (atRiskIndex === -1 || noIndex === -1 || noIndex === atRiskIndex + 1) {
+    return items
+  }
+
+  const reordered = [...items]
+  const [noItem] = reordered.splice(noIndex, 1)
+  const targetIndex = atRiskIndex < noIndex ? atRiskIndex + 1 : atRiskIndex
+  reordered.splice(targetIndex, 0, noItem)
+  return reordered
+}
+
 const pickFirstText = (...values) => {
   for (const value of values) {
     const normalized = cleanText(value)
@@ -100,29 +130,32 @@ const normalizeAssessment = (data) => {
           .replace(/_/g, ' ')
           .replace(/\b\w/g, (char) => char.toUpperCase())
 
-      const responseOptions = rawOptions.map((option, optionIndex) => {
-        const responseType =
-          option.response_type || option.responseType || option.type || option.value
-        return {
-          id: option.id ?? `${subcategoryId}-option-${optionIndex}`,
-          label: pickFirstText(
-            option.label,
-            option.title,
-            option.name,
-            option.option_label,
-            option.optionLabel,
-            responseType ? formatLabel(responseType) : '',
-            `Option ${optionIndex + 1}`
-          ),
-          description: pickFirstText(
-            option.description,
-            option.text,
-            option.details,
-            option.help_text,
-            option.helpText
-          ),
-        }
-      })
+      const responseOptions = moveNoAfterAtRisk(
+        rawOptions.map((option, optionIndex) => {
+          const responseType =
+            option.response_type || option.responseType || option.type || option.value
+          return {
+            id: option.id ?? `${subcategoryId}-option-${optionIndex}`,
+            label: pickFirstText(
+              option.label,
+              option.title,
+              option.name,
+              option.option_label,
+              option.optionLabel,
+              responseType ? formatLabel(responseType) : '',
+              `Option ${optionIndex + 1}`
+            ),
+            description: pickFirstText(
+              option.description,
+              option.text,
+              option.details,
+              option.help_text,
+              option.helpText
+            ),
+          }
+        }),
+        (option) => option?.label
+      )
 
       return {
         id: subcategoryId,
@@ -242,7 +275,6 @@ const formatDateLabel = (value) => {
 }
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
-const PENDING_LINK_KEY = 'pendingInitiativeLink'
 const AUTO_SAVE_INTERVAL_MS = 30000
 
 const loadLinksForAssessment = (assessmentId) => {
@@ -312,7 +344,9 @@ const PerformAssessment = ({
   })
   const [initiativeEditor, setInitiativeEditor] = useState({
     open: false,
+    mode: 'edit',
     initiative: null,
+    pendingLinkedItem: null,
   })
   const [isDownloadingReport, setIsDownloadingReport] = useState(false)
   const [toast, setToast] = useState(null)
@@ -536,11 +570,11 @@ const PerformAssessment = ({
 
   const responseGroupOrder = [
     { key: 'at_risk', label: 'At Risk', header: 'bg-red-100 text-red-800', badge: 'bg-red-500 text-white' },
+    { key: 'no', label: 'No', header: 'bg-red-100 text-red-800', badge: 'bg-red-500 text-white' },
     { key: 'needs_attention', label: 'Needs Attention', header: 'bg-orange-100 text-orange-800', badge: 'bg-orange-500 text-white' },
     { key: 'acceptable_risk', label: 'Acceptable Risk', header: 'bg-blue-100 text-blue-800', badge: 'bg-blue-500 text-white' },
     { key: 'satisfactory', label: 'Satisfactory', header: 'bg-green-100 text-green-800', badge: 'bg-green-500 text-white' },
     { key: 'yes', label: 'Yes', header: 'bg-green-100 text-green-800', badge: 'bg-green-500 text-white' },
-    { key: 'no', label: 'No', header: 'bg-red-100 text-red-800', badge: 'bg-red-500 text-white' },
     { key: 'not_applicable', label: 'Not Applicable', header: 'bg-purple-100 text-purple-800', badge: 'bg-purple-500 text-white' },
     { key: 'unknown', label: 'Unknown', header: 'bg-gray-100 text-gray-700', badge: 'bg-gray-500 text-white' },
   ]
@@ -1138,7 +1172,7 @@ const PerformAssessment = ({
     if (!assessmentId) {
       return
     }
-    const linkPayload = {
+    const pendingLinkedItem = {
       assessmentId,
       responseId: item.responseId || item.id,
       subcategoryId: item.responseId || item.id,
@@ -1146,8 +1180,13 @@ const PerformAssessment = ({
       categoryTitle: item.categoryTitle,
       responseLabel: item.responseLabel,
     }
-    localStorage.setItem(PENDING_LINK_KEY, JSON.stringify(linkPayload))
-    navigate('/roadmap')
+    setInitiativePicker({ responseId: null, mode: 'existing', isOpen: false })
+    setInitiativeEditor({
+      open: true,
+      mode: 'create',
+      initiative: null,
+      pendingLinkedItem,
+    })
   }
 
   const handleSelectExistingInitiative = (item, initiativeId) => {
@@ -1204,6 +1243,95 @@ const PerformAssessment = ({
   }
 
   const handleSaveInitiativeFromAssessment = (updated) => {
+    const handleCreateFromAssessment = async () => {
+      const organizationId =
+        assessment?.organizationId || Number(activeOrganizationId)
+      if (!organizationId) {
+        setToast({
+          type: 'error',
+          message: 'Select a client before creating an initiative.',
+        })
+        return
+      }
+
+      const pendingLinkedItem = initiativeEditor.pendingLinkedItem
+      const pendingResponseKey =
+        pendingLinkedItem?.responseId || pendingLinkedItem?.subcategoryId || null
+      const payloadWithPendingLink = pendingLinkedItem
+        ? {
+            ...updated,
+            linkedItems: [...(updated?.linkedItems || []), pendingLinkedItem],
+            linkedSubcategoryIds: Array.from(
+              new Set([
+                ...(updated?.linkedSubcategoryIds || []),
+                pendingLinkedItem.subcategoryId,
+              ].filter(Boolean))
+            ),
+          }
+        : updated
+
+      try {
+        const created = await createInitiative(
+          mapInitiativeToApi(payloadWithPendingLink, organizationId, {
+            goalId: payloadWithPendingLink?.goalId,
+          })
+        )
+        let mapped = mapInitiativeFromApi(created, {
+          linkedItemsById: pendingLinkedItem ? { [created.id]: [pendingLinkedItem] } : {},
+        })
+
+        if (pendingLinkedItem?.subcategoryId) {
+          mapped = {
+            ...mapped,
+            linkedSubcategoryIds: Array.from(
+              new Set([
+                ...(mapped.linkedSubcategoryIds || []),
+                pendingLinkedItem.subcategoryId,
+              ])
+            ),
+          }
+        }
+
+        if (assessmentId && pendingResponseKey && mapped?.id) {
+          const nextLinks = {
+            ...initiativeLinks,
+            [pendingResponseKey]: mapped.id,
+          }
+          setInitiativeLinks(nextLinks)
+          saveLinksForAssessment(assessmentId, nextLinks)
+
+          try {
+            await updateInitiative(
+              mapped.id,
+              mapInitiativeToApi(mapped, organizationId, {
+                goalId: mapped?.goalId ?? payloadWithPendingLink?.goalId,
+              })
+            )
+          } catch {
+            // Keep the local assessment link intact even if the follow-up initiative sync fails.
+          }
+        }
+
+        setInitiatives((prev) => [mapped, ...prev])
+        setInitiativeEditor({
+          open: false,
+          mode: 'edit',
+          initiative: null,
+          pendingLinkedItem: null,
+        })
+      } catch {
+        setToast({
+          type: 'error',
+          message: 'Unable to create initiative. Please try again.',
+        })
+      }
+    }
+
+    if (initiativeEditor.mode === 'create') {
+      void handleCreateFromAssessment()
+      return
+    }
+
     const previous = initiativeEditor.initiative
     const previousItems = Array.isArray(previous?.linkedItems) ? previous.linkedItems : []
     const nextItems = Array.isArray(updated?.linkedItems) ? updated.linkedItems : []
@@ -1247,7 +1375,12 @@ const PerformAssessment = ({
         String(item.id) === String(updated.id) ? updated : item
       )
     )
-    setInitiativeEditor({ open: false, initiative: null })
+    setInitiativeEditor({
+      open: false,
+      mode: 'edit',
+      initiative: null,
+      pendingLinkedItem: null,
+    })
   }
 
   const handleDeleteInitiativeFromAssessment = (initiativeId) => {
@@ -1265,7 +1398,12 @@ const PerformAssessment = ({
       setInitiativeLinks(nextLinks)
       saveLinksForAssessment(assessmentId, nextLinks)
     }
-    setInitiativeEditor({ open: false, initiative: null })
+    setInitiativeEditor({
+      open: false,
+      mode: 'edit',
+      initiative: null,
+      pendingLinkedItem: null,
+    })
   }
 
   const handleLinkedAssessmentClick = (item) => {
@@ -1658,12 +1796,19 @@ const PerformAssessment = ({
       )}
 
       <InitiativeDrawer
-        key={initiativeEditor.initiative?.id ?? 'new'}
+        key={`${initiativeEditor.mode}-${initiativeEditor.initiative?.id ?? 'new'}`}
         open={initiativeEditor.open}
-        mode="edit"
+        mode={initiativeEditor.mode}
         initiative={initiativeEditor.initiative}
         years={years}
-        onClose={() => setInitiativeEditor({ open: false, initiative: null })}
+        onClose={() =>
+          setInitiativeEditor({
+            open: false,
+            mode: 'edit',
+            initiative: null,
+            pendingLinkedItem: null,
+          })
+        }
         onSave={handleSaveInitiativeFromAssessment}
         onDelete={handleDeleteInitiativeFromAssessment}
         onLinkedAssessmentClick={handleLinkedAssessmentClick}

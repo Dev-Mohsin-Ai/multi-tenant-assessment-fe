@@ -212,7 +212,7 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
 
   return (
     <div className="w-full border-b border-gray-200 bg-white px-4 py-3 md:px-6">
-      <div className="flex min-h-[2.75rem] items-center gap-3 min-w-0">
+      <div className="flex min-h-11 items-center gap-3 min-w-0">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <h1
             className="min-w-0 truncate text-xl font-semibold text-gray-900"
