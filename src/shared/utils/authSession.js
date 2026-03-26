@@ -3,6 +3,7 @@ const USER_KEY = 'authUser'
 const IS_ADMIN_KEY = 'isAdmin'
 const DEFAULT_BASE_URL = 'https://multi-assessment-pro-be-production.up.railway.app'
 const IS_ACTIVE_KEY = 'isActive'
+const AUTH_NOTICE_KEY = 'authNotice'
 
 const resolveAdminFlag = (source) => {
   if (!source || typeof source !== 'object') {
@@ -65,6 +66,40 @@ export const clearAuthSession = () => {
   localStorage.removeItem(IS_ACTIVE_KEY)
 }
 
+export const storeSessionExpiredNotice = () => {
+  try {
+    sessionStorage.setItem(AUTH_NOTICE_KEY, 'session_expired')
+  } catch {
+    // ignore storage failures
+  }
+}
+
+export const clearStoredAuthNotice = () => {
+  try {
+    sessionStorage.removeItem(AUTH_NOTICE_KEY)
+  } catch {
+    // ignore storage failures
+  }
+}
+
+export const consumeStoredAuthNotice = () => {
+  try {
+    const notice = sessionStorage.getItem(AUTH_NOTICE_KEY)
+    sessionStorage.removeItem(AUTH_NOTICE_KEY)
+
+    if (notice === 'session_expired') {
+      return {
+        type: 'info',
+        message: 'You were logged out because your session expired after 30 minutes. Please sign in again.',
+      }
+    }
+  } catch {
+    // ignore storage failures
+  }
+
+  return null
+}
+
 export const hasAuthToken = () => Boolean(localStorage.getItem(TOKEN_KEY))
 
 export const hasResolvedAdminAccess = () => localStorage.getItem(IS_ADMIN_KEY) !== null
@@ -118,6 +153,7 @@ export const refreshCurrentUserSession = async () => {
     }
 
     if (response.status === 401) {
+      storeSessionExpiredNotice()
       clearAuthSession()
       return false
     }

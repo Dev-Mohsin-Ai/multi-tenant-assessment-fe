@@ -364,6 +364,8 @@ const AllClients = ({ onStarredClientsChange }) => {
     {
       key: 'favorite',
       label: 'Favorite',
+      width: '96px',
+      align: 'center',
       render: (value, row) => (
         <button
           type="button"
@@ -409,6 +411,7 @@ const AllClients = ({ onStarredClientsChange }) => {
     {
       key: 'description',
       label: 'Description',
+      width: '34%',
       render: (value, row) => {
         const isEditing = String(editingClientId) === String(row.id)
         if (!isEditing) {
@@ -451,9 +454,10 @@ const AllClients = ({ onStarredClientsChange }) => {
     },
     {
       key: 'action',
-      label: <span className="block text-right">Action</span>,
+      label: 'Action',
+      width: '180px',
       render: (value, row) => (
-        <div className="flex w-full justify-end">
+        <div className="flex w-full justify-start">
           <button
             type="button"
             onClick={(event) => {

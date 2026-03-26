@@ -30,6 +30,7 @@ import {
 import { mapInitiativeFromApi, mapInitiativeToApi } from '../roadmap/initiativeMapper'
 import { CONTACTS, PRIORITY_OPTIONS, QUARTERS, STATUS_OPTIONS } from '../roadmap/initiativeConstants'
 import { useAppStore } from '../../shared/store/useAppStore'
+import { syncStoredAssessmentLinksForInitiative } from '../../shared/utils/initiativeLinks'
 
 const buildScheduleOptions = (years) =>
   years.flatMap((year) => QUARTERS.map((quarter) => `${quarter}, ${year}`))
@@ -221,7 +222,16 @@ const Goals = () => {
     try {
       const data = await getInitiatives({ organization_id: organizationId })
       const list = Array.isArray(data) ? data : data?.initiatives || []
-      setAvailableInitiatives(list.map((item) => mapInitiativeFromApi(item)))
+      const detailedList = await Promise.all(
+        list.map(async (item) => {
+          try {
+            return await getInitiativeById(item.id)
+          } catch {
+            return item
+          }
+        })
+      )
+      setAvailableInitiatives(detailedList.map((item) => mapInitiativeFromApi(item)))
     } catch {
       setLoadError('Unable to load initiatives')
     } finally {
@@ -536,18 +546,58 @@ const Goals = () => {
         availableInitiatives.find((initiative) => String(initiative.id) === String(initiativeId)) ||
         null
 
-      const fallback = fallbackFromGoals || fallbackFromList
+      const fallback = {
+        ...(fallbackFromGoals || {}),
+        ...(fallbackFromList || {}),
+        summary:
+          fallbackFromList?.summary ||
+          fallbackFromGoals?.summary ||
+          '',
+        oneTimeFees:
+          Array.isArray(fallbackFromList?.oneTimeFees) &&
+          fallbackFromList.oneTimeFees.length > 0
+            ? fallbackFromList.oneTimeFees
+            : fallbackFromGoals?.oneTimeFees || [],
+        recurringFees:
+          Array.isArray(fallbackFromList?.recurringFees) &&
+          fallbackFromList.recurringFees.length > 0
+            ? fallbackFromList.recurringFees
+            : fallbackFromGoals?.recurringFees || [],
+        templateId:
+          fallbackFromList?.templateId ??
+          fallbackFromGoals?.templateId ??
+          null,
+        templateTitle:
+          fallbackFromList?.templateTitle ||
+          fallbackFromGoals?.templateTitle ||
+          '',
+      }
 
       try {
         const detailed = await getInitiativeById(initiativeId)
         const fallbackLinkedItems = Array.isArray(fallback?.linkedItems)
           ? fallback.linkedItems
           : []
-        const mapped = mapInitiativeFromApi(detailed, {
+        const mappedBase = mapInitiativeFromApi(detailed, {
           linkedItemsById: fallbackLinkedItems.length > 0
             ? { [initiativeId]: fallbackLinkedItems }
             : undefined,
         })
+        const mapped = {
+          ...mappedBase,
+          title: mappedBase.title || fallback?.title || '',
+          summary: mappedBase.summary || fallback?.summary || '',
+          oneTimeFees:
+            mappedBase.oneTimeFees?.length > 0
+              ? mappedBase.oneTimeFees
+              : fallback?.oneTimeFees || [],
+          recurringFees:
+            mappedBase.recurringFees?.length > 0
+              ? mappedBase.recurringFees
+              : fallback?.recurringFees || [],
+          templateId: mappedBase.templateId || fallback?.templateId || null,
+          templateTitle: mappedBase.templateTitle || fallback?.templateTitle || '',
+        }
         setInitiativeDrawerState({ open: true, mode: 'edit', initiative: mapped })
       } catch {
         setLoadError('Unable to load initiative')
@@ -596,11 +646,27 @@ const Goals = () => {
           nextPayload = { ...payload, goalId: null }
         }
 
-        const mapped = mapInitiativeFromApi(updated, {
+        const latest = await getInitiativeById(targetId).catch(() => updated)
+        const mappedBase = mapInitiativeFromApi(latest, {
           linkedItemsById: Array.isArray(nextPayload?.linkedItems)
             ? { [targetId]: nextPayload.linkedItems }
             : undefined,
         })
+        const mapped = {
+          ...mappedBase,
+          title: mappedBase.title || nextPayload.title || '',
+          summary: mappedBase.summary || nextPayload.summary || '',
+          oneTimeFees:
+            mappedBase.oneTimeFees?.length > 0
+              ? mappedBase.oneTimeFees
+              : nextPayload.oneTimeFees || [],
+          recurringFees:
+            mappedBase.recurringFees?.length > 0
+              ? mappedBase.recurringFees
+              : nextPayload.recurringFees || [],
+          templateId: nextPayload.templateId || mappedBase.templateId || null,
+          templateTitle: nextPayload.templateTitle || mappedBase.templateTitle || '',
+        }
         const normalizedMapped = nextPayload.isScheduled
           ? mapped
           : {
@@ -611,6 +677,7 @@ const Goals = () => {
               startDate: null,
             }
 
+        syncStoredAssessmentLinksForInitiative(targetId, normalizedMapped.linkedItems || [])
         upsertAvailableInitiatives([normalizedMapped])
         syncGoalsWithInitiatives([normalizedMapped])
 
@@ -820,9 +887,22 @@ const Goals = () => {
 
         const updatedInitiatives = await Promise.all(
           selectedInitiatives.map(async (initiative) => {
-            const mappedPayload = mapInitiativeToApi(initiative, organizationId, { goalId })
+            let fullInitiative = initiative
+            try {
+              const detailed = await getInitiativeById(initiative.id)
+              const mappedDetail = mapInitiativeFromApi(detailed)
+              fullInitiative = {
+                ...mappedDetail,
+                templateId: initiative?.templateId ?? mappedDetail.templateId ?? null,
+                templateTitle: initiative?.templateTitle || mappedDetail.templateTitle || '',
+              }
+            } catch {
+              fullInitiative = initiative
+            }
+            const mappedPayload = mapInitiativeToApi(fullInitiative, organizationId, { goalId })
             const updated = await updateInitiative(initiative.id, mappedPayload)
-            return mapInitiativeFromApi(updated)
+            const latest = await getInitiativeById(initiative.id).catch(() => updated)
+            return mapInitiativeFromApi(latest)
           })
         )
 
@@ -867,7 +947,8 @@ const Goals = () => {
           { goalId }
         )
         const created = await createInitiative(payload)
-        linkedInitiative = mapInitiativeFromApi(created)
+        const latestCreated = await getInitiativeById(created.id).catch(() => created)
+        linkedInitiative = mapInitiativeFromApi(latestCreated)
         upsertAvailableInitiatives([linkedInitiative])
         syncGoalsWithInitiatives([linkedInitiative])
       }

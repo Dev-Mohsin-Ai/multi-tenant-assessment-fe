@@ -20,6 +20,7 @@ import {
 import {
   createInitiative,
   deleteInitiative,
+  getInitiativeById,
   getInitiatives,
   updateInitiative,
 } from '../../shared/services/initiativeService'
@@ -28,6 +29,7 @@ import { mapInitiativeFromApi, mapInitiativeToApi } from './initiativeMapper'
 import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
 import AppSelect from '../../shared/components/AppSelect'
+import { syncStoredAssessmentLinksForInitiative } from '../../shared/utils/initiativeLinks'
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
@@ -304,7 +306,16 @@ const Roadmap = () => {
     try {
       const data = await getInitiatives({ organization_id: organizationId })
       const list = Array.isArray(data) ? data : data?.initiatives || []
-      setInitiatives(list.map((item) => mapInitiativeFromApi(item)))
+      const detailedList = await Promise.all(
+        list.map(async (item) => {
+          try {
+            return await getInitiativeById(item.id)
+          } catch {
+            return item
+          }
+        })
+      )
+      setInitiatives(detailedList.map((item) => mapInitiativeFromApi(item)))
     } catch {
       setLoadError('Unable to load initiatives')
     } finally {
@@ -594,12 +605,7 @@ const Roadmap = () => {
     }
     if (drawerState.mode === 'edit' && drawerState.initiative) {
       try {
-        const previousLinkedItems = Array.isArray(drawerState.initiative.linkedItems)
-          ? drawerState.initiative.linkedItems
-          : []
         const nextLinkedItems = Array.isArray(payload.linkedItems) ? payload.linkedItems : []
-        const getResponseKey = (item) =>
-          String(item?.responseId ?? item?.subcategoryId ?? item?.id ?? '')
 
         const apiPayload = mapInitiativeToApi(payload, organizationId, { goalId: payload?.goalId })
         let updated
@@ -619,9 +625,25 @@ const Roadmap = () => {
           updated = await updateInitiative(drawerState.initiative.id, retryPayload)
           payload = { ...payload, goalId: null }
         }
-        const mapped = mapInitiativeFromApi(updated, {
+        const latest = await getInitiativeById(drawerState.initiative.id).catch(() => updated)
+        const mappedBase = mapInitiativeFromApi(latest, {
           linkedItemsById: { [payload.id]: payload.linkedItems || [] },
         })
+        const mapped = {
+          ...mappedBase,
+          title: mappedBase.title || payload.title || '',
+          summary: mappedBase.summary || payload.summary || '',
+          oneTimeFees:
+            mappedBase.oneTimeFees?.length > 0
+              ? mappedBase.oneTimeFees
+              : payload.oneTimeFees || [],
+          recurringFees:
+            mappedBase.recurringFees?.length > 0
+              ? mappedBase.recurringFees
+              : payload.recurringFees || [],
+          templateId: payload.templateId || mappedBase.templateId || null,
+          templateTitle: payload.templateTitle || mappedBase.templateTitle || '',
+        }
         const normalizedMapped = payload.isScheduled
           ? {
               ...mapped,
@@ -641,47 +663,7 @@ const Roadmap = () => {
               startDate: null,
             }
 
-        try {
-          const linksRaw = localStorage.getItem(INITIATIVE_LINKS_KEY)
-          const links = linksRaw ? JSON.parse(linksRaw) : {}
-
-          const nextResponseKeys = new Set(
-            nextLinkedItems.map(getResponseKey).filter(Boolean)
-          )
-
-          previousLinkedItems.forEach((item) => {
-            const assessmentId = item?.assessmentId
-            const responseKey = getResponseKey(item)
-            if (!assessmentId || !responseKey || nextResponseKeys.has(responseKey)) {
-              return
-            }
-            const assessmentLinks = links?.[assessmentId]
-            if (!assessmentLinks) {
-              return
-            }
-            if (
-              String(assessmentLinks[responseKey]) === String(drawerState.initiative.id)
-            ) {
-              delete assessmentLinks[responseKey]
-            }
-            links[assessmentId] = assessmentLinks
-          })
-
-          nextLinkedItems.forEach((item) => {
-            const assessmentId = item?.assessmentId
-            const responseKey = getResponseKey(item)
-            if (!assessmentId || !responseKey) {
-              return
-            }
-            const assessmentLinks = links?.[assessmentId] || {}
-            assessmentLinks[responseKey] = drawerState.initiative.id
-            links[assessmentId] = assessmentLinks
-          })
-
-          localStorage.setItem(INITIATIVE_LINKS_KEY, JSON.stringify(links))
-        } catch (error) {
-          void error
-        }
+        syncStoredAssessmentLinksForInitiative(drawerState.initiative.id, nextLinkedItems)
 
         setInitiatives((prev) =>
           prev.map((item) =>
@@ -715,9 +697,25 @@ const Roadmap = () => {
       const created = await createInitiative(
         mapInitiativeToApi(payload, organizationId, { goalId: payload?.goalId })
       )
-      const mapped = mapInitiativeFromApi(created, {
+      const latestCreated = await getInitiativeById(created.id).catch(() => created)
+      const mappedBase = mapInitiativeFromApi(latestCreated, {
         linkedItemsById: { [created.id]: payload.linkedItems || [] },
       })
+      const mapped = {
+        ...mappedBase,
+        title: mappedBase.title || payload.title || '',
+        summary: mappedBase.summary || payload.summary || '',
+        oneTimeFees:
+          mappedBase.oneTimeFees?.length > 0
+            ? mappedBase.oneTimeFees
+            : payload.oneTimeFees || [],
+        recurringFees:
+          mappedBase.recurringFees?.length > 0
+            ? mappedBase.recurringFees
+            : payload.recurringFees || [],
+        templateId: payload.templateId || mappedBase.templateId || null,
+        templateTitle: payload.templateTitle || mappedBase.templateTitle || '',
+      }
       if (pendingLink) {
         const pendingResponseKey = pendingLink.responseId || pendingLink.subcategoryId
         const linkEntry = {
@@ -737,14 +735,7 @@ const Roadmap = () => {
             ])
           )
         }
-        const linksRaw = localStorage.getItem(INITIATIVE_LINKS_KEY)
-        const links = linksRaw ? JSON.parse(linksRaw) : {}
-        const assessmentLinks = links[pendingLink.assessmentId] || {}
-        if (pendingResponseKey) {
-          assessmentLinks[pendingResponseKey] = mapped.id
-        }
-        links[pendingLink.assessmentId] = assessmentLinks
-        localStorage.setItem(INITIATIVE_LINKS_KEY, JSON.stringify(links))
+        syncStoredAssessmentLinksForInitiative(mapped.id, mapped.linkedItems || [])
         localStorage.removeItem(PENDING_LINK_KEY)
         setPendingLink(null)
       }

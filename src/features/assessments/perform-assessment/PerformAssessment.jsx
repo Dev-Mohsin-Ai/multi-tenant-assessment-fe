@@ -1159,11 +1159,13 @@ const PerformAssessment = ({
         .filter(Boolean)
       setInitiativeEditor({
         open: true,
+        mode: 'edit',
         initiative: {
           ...found,
           linkedItems,
           linkedSubcategoryIds: linkedItems.map((item) => item.subcategoryId),
         },
+        pendingLinkedItem: null,
       })
     }
   }
@@ -1276,9 +1278,35 @@ const PerformAssessment = ({
             goalId: payloadWithPendingLink?.goalId,
           })
         )
-        let mapped = mapInitiativeFromApi(created, {
-          linkedItemsById: pendingLinkedItem ? { [created.id]: [pendingLinkedItem] } : {},
+        const createdId = created?.id
+        let createdDetail = created
+
+        if (createdId) {
+          try {
+            createdDetail = await getInitiativeById(createdId)
+          } catch {
+            createdDetail = created
+          }
+        }
+
+        let mappedBase = mapInitiativeFromApi(createdDetail, {
+          linkedItemsById: pendingLinkedItem ? { [createdId]: [pendingLinkedItem] } : {},
         })
+        let mapped = {
+          ...mappedBase,
+          title: mappedBase.title || payloadWithPendingLink.title || '',
+          summary: mappedBase.summary || payloadWithPendingLink.summary || '',
+          oneTimeFees:
+            mappedBase.oneTimeFees?.length > 0
+              ? mappedBase.oneTimeFees
+              : payloadWithPendingLink.oneTimeFees || [],
+          recurringFees:
+            mappedBase.recurringFees?.length > 0
+              ? mappedBase.recurringFees
+              : payloadWithPendingLink.recurringFees || [],
+          templateId: payloadWithPendingLink.templateId || null,
+          templateTitle: payloadWithPendingLink.templateTitle || '',
+        }
 
         if (pendingLinkedItem?.subcategoryId) {
           mapped = {
@@ -1289,6 +1317,21 @@ const PerformAssessment = ({
                 pendingLinkedItem.subcategoryId,
               ])
             ),
+          }
+        }
+
+        if (mapped?.id && mapped.templateId) {
+          try {
+            const templateMap = JSON.parse(
+              localStorage.getItem('initiativeTemplateMap') || '{}'
+            )
+            templateMap[String(mapped.id)] = {
+              templateId: mapped.templateId,
+              templateTitle: mapped.templateTitle || '',
+            }
+            localStorage.setItem('initiativeTemplateMap', JSON.stringify(templateMap))
+          } catch {
+            // Ignore storage failures; initiative creation should still succeed.
           }
         }
 
@@ -1594,19 +1637,23 @@ const PerformAssessment = ({
           totalResponsesCount={totalResponsesCount}
           renderGroupRow={(item) => (
             <tr key={item.id} className="border-b border-gray-200 last:border-b-0">
-              <td className="px-4 py-3 align-top">
-                <div className="font-semibold text-gray-900">{item.title}</div>
+              <td className="px-4 py-4 align-top">
+                <div className="space-y-1 wrap-break-words text-left">
+                  <div className="font-semibold text-gray-900">{item.title}</div>
                 {item.description && (
-                  <p className="text-xs text-gray-600 mt-1">{item.description}</p>
+                    <p className="text-xs leading-5 text-gray-600">{item.description}</p>
                 )}
+                </div>
               </td>
-              <td className="px-4 py-3 align-top">
-                <div className="font-semibold text-gray-900">{item.responseLabel}</div>
-                <p className="text-xs text-gray-600 mt-1">
-                  {item.responseDescription || 'No description provided.'}
-                </p>
+              <td className="px-4 py-4 align-top">
+                <div className="space-y-1 wrap-break-words text-left">
+                  <div className="font-semibold text-gray-900">{item.responseLabel}</div>
+                  <p className="text-xs leading-5 text-gray-600">
+                    {item.responseDescription || 'No description provided.'}
+                  </p>
+                </div>
               </td>
-              <td className="px-4 py-3 align-top text-center">
+              <td className="px-4 py-4 align-middle text-center">
                 {(() => {
                   const responseId = item.responseId || item.id
                   const linkedInitiativeId = initiativeLinks[responseId]
@@ -1619,18 +1666,20 @@ const PerformAssessment = ({
 
                   if (linkedInitiative) {
                     return (
-                      <button
-                        type="button"
-                        onClick={() => handleOpenInitiative(linkedInitiative.id)}
-                        className="text-sm font-semibold text-blue-700 hover:text-blue-900"
-                      >
-                        {linkedInitiative.title || 'Untitled initiative'}
-                      </button>
+                      <div className="flex min-h-11 items-center justify-center">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenInitiative(linkedInitiative.id)}
+                          className="max-w-full wrap-break-words text-center text-sm font-semibold text-blue-700 hover:text-blue-900"
+                        >
+                          {linkedInitiative.title || 'Untitled initiative'}
+                        </button>
+                      </div>
                     )
                   }
 
                   return (
-                    <div className="relative">
+                    <div className="relative flex min-h-11 items-center justify-center">
                       <button
                         type="button"
                         onClick={() =>
@@ -1740,7 +1789,7 @@ const PerformAssessment = ({
                   )
                 })()}
               </td>
-              <td className="px-4 py-3 align-middle text-center">
+              <td className="px-4 py-4 align-middle text-center">
                 {(() => {
                   const hasPublicComment = Boolean((item.publicComment || '').trim())
                   const hasInternalComment = Boolean((item.internalComment || '').trim())
@@ -1752,7 +1801,7 @@ const PerformAssessment = ({
                     ? 'Internal'
                     : 'No comments'
                   return (
-                    <div className="flex items-center justify-center">
+                    <div className="flex min-h-11 items-center justify-center">
                       <div className="group relative inline-flex">
                         <span
                           aria-label={`Comments: ${commentTypeLabel}`}
@@ -1813,7 +1862,8 @@ const PerformAssessment = ({
         onDelete={handleDeleteInitiativeFromAssessment}
         onLinkedAssessmentClick={handleLinkedAssessmentClick}
         linkedAssessmentId={assessmentId}
-        showTemplateActions={!isCompleted}
+        showSaveTemplateAction={!isCompleted}
+        showApplyTemplateAction
       />
       {isDeleteDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(12,19,34,0.45)] px-4">

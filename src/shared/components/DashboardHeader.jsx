@@ -3,6 +3,7 @@ import HeaderLogo from '../../assets/HeaderLogo.png'
 import { useNavigate } from 'react-router-dom';
 import {
   clearAuthSession,
+  clearStoredAuthNotice,
   hasAuthToken,
   hasResolvedAdminAccess,
   refreshCurrentUserSession,
@@ -34,6 +35,7 @@ const DashboardHeader = () => {
   }, [hasToken])
 
   const handleLogout = () => {
+    clearStoredAuthNotice()
     clearAuthSession()
     navigate('/login')
   }

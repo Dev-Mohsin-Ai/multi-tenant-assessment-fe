@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/useAppStore'
 import {
   clearAuthSession,
+  clearStoredAuthNotice,
   hasAuthToken,
   hasResolvedAdminAccess,
   refreshCurrentUserSession,
@@ -38,6 +39,7 @@ const Header = () => {
   }, [hasToken])
 
   const handleLogout = () => {
+    clearStoredAuthNotice()
     clearAuthSession()
     clearActiveOrganization?.()
     navigate('/login')

@@ -20,6 +20,22 @@ const cleanText = (value) =>
     .replace(/\s*\(Copy\)\s*/gi, ' ')
     .trim()
 
+const toArray = (value) => (Array.isArray(value) ? value : [])
+
+const firstDefined = (...values) => {
+  for (const value of values) {
+    if (value !== undefined && value !== null) {
+      return value
+    }
+  }
+  return undefined
+}
+
+export const resolveInitiativeEntity = (initiative = {}) =>
+  initiative && typeof initiative === 'object' && initiative.initiative
+    ? initiative.initiative
+    : initiative
+
 const isNumericLike = (value) => /^-?\d+(\.\d+)?$/.test(String(value || '').trim())
 
 const isUsableTitle = (value) => {
@@ -184,30 +200,60 @@ const mergeLinkedItem = (existing = {}, candidate = {}) => {
 }
 
 export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
-  const goalId = initiative.goal_id ?? initiative.goalId ?? initiative.goal?.id ?? null
-  const scheduleYear = initiative.schedule_year ?? initiative.scheduleYear ?? null
+  const source = resolveInitiativeEntity(initiative)
+  const goalId = source.goal_id ?? source.goalId ?? source.goal?.id ?? null
+  const scheduleYear = source.schedule_year ?? source.scheduleYear ?? null
   const scheduleQuarter =
-    initiative.schedule_quarter ?? initiative.scheduleQuarter ?? null
+    source.schedule_quarter ?? source.scheduleQuarter ?? null
   const isScheduled = Boolean(scheduleYear && scheduleQuarter)
   const resolvedYear = isScheduled ? scheduleYear : null
   const resolvedQuarter = isScheduled && QUARTERS.includes(scheduleQuarter)
     ? scheduleQuarter
     : null
   const contactId =
-    initiative.contact_id ??
-    initiative.contactId ??
-    initiative.contact_user?.id ??
+    source.contact_id ??
+    source.contactId ??
+    source.contact_user?.id ??
     DEFAULT_CONTACT.id
   const contactUser =
-    initiative.contact_user ||
+    source.contact_user ||
+    source.contactUser ||
     DEFAULT_CONTACT
 
-  const linkedItemsFromApi = Array.isArray(initiative.linked_subcategories)
-    ? initiative.linked_subcategories.map((sub) => mapLinkedSubcategoryFromApi(sub))
+  const resolvedSummary = cleanText(
+    firstDefined(
+      source.executive_summary,
+      source.executiveSummary,
+      source.summary,
+      source.description,
+      ''
+    )
+  )
+
+  const resolvedOneTimeFees = toArray(
+    source.one_time_fees ||
+      source.oneTimeFees ||
+      source.one_time_budget ||
+      source.oneTimeBudget ||
+      source.budget?.one_time_fees ||
+      source.budget?.oneTimeFees
+  )
+
+  const resolvedRecurringFees = toArray(
+    source.recurring_fees ||
+      source.recurringFees ||
+      source.recurring_budget ||
+      source.recurringBudget ||
+      source.budget?.recurring_fees ||
+      source.budget?.recurringFees
+  )
+
+  const linkedItemsFromApi = Array.isArray(source.linked_subcategories)
+    ? source.linked_subcategories.map((sub) => mapLinkedSubcategoryFromApi(sub))
     : []
 
-  const optionLinkedItems = Array.isArray(options.linkedItemsById?.[initiative.id])
-    ? options.linkedItemsById[initiative.id]
+  const optionLinkedItems = Array.isArray(options.linkedItemsById?.[source.id])
+    ? options.linkedItemsById[source.id]
     : []
 
   const linkedItemsMap = new Map()
@@ -225,12 +271,12 @@ export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
   const linkedItems = Array.from(linkedItemsMap.values())
 
   return {
-    id: initiative.id ?? createId(),
-    title: initiative.title || '',
-    summary: initiative.executive_summary || '',
+    id: source.id ?? createId(),
+    title: source.title || '',
+    summary: resolvedSummary,
     goalId,
-    status: STATUS_FROM_API[initiative.status] || 'Open',
-    priority: PRIORITY_FROM_API[initiative.priority] || 'Medium',
+    status: STATUS_FROM_API[source.status] || 'Open',
+    priority: PRIORITY_FROM_API[source.priority] || 'Medium',
     contactId,
     contactName: contactUser?.full_name || DEFAULT_CONTACT.full_name,
     isScheduled,
@@ -240,12 +286,12 @@ export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
       isScheduled && resolvedYear && resolvedQuarter
         ? getQuarterStartDate(resolvedYear, resolvedQuarter)
         : null,
-    oneTimeFees: (initiative.one_time_fees || []).map((fee) => ({
+    oneTimeFees: resolvedOneTimeFees.map((fee) => ({
       id: fee.id ?? createId(),
       title: fee.title || '',
       amount: fee.amount ?? 0,
     })),
-    recurringFees: (initiative.recurring_fees || []).map((fee) => ({
+    recurringFees: resolvedRecurringFees.map((fee) => ({
       id: fee.id ?? createId(),
       title: fee.title || '',
       amount: fee.amount ?? 0,
@@ -253,8 +299,8 @@ export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
       peopleCount: fee.number_of_persons ?? 1,
     })),
     linkedItems,
-    linkedSubcategoryIds: Array.isArray(initiative.linked_subcategories)
-      ? initiative.linked_subcategories
+    linkedSubcategoryIds: Array.isArray(source.linked_subcategories)
+      ? source.linked_subcategories
           .map(
             (sub) =>
               sub && typeof sub === 'object'

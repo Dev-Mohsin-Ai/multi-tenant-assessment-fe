@@ -8,13 +8,20 @@ import { FiTarget } from "react-icons/fi";
 import { HiTemplate } from "react-icons/hi";
 import { Link, useNavigate } from "react-router-dom";
 import { googleLogin, login } from "../../shared/services/authService";
-import { persistAuthSession, refreshCurrentUserSession } from "../../shared/utils/authSession";
+import ToastMessage from "../../shared/components/ToastMessage";
+import {
+  clearStoredAuthNotice,
+  consumeStoredAuthNotice,
+  persistAuthSession,
+  refreshCurrentUserSession
+} from "../../shared/utils/authSession";
 
 const Login = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [Error, setError] = useState({});
+  const [toast, setToast] = useState(() => consumeStoredAuthNotice());
   const googleButtonRef = useRef(null);
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const allowedOrigins = (import.meta.env.VITE_GOOGLE_ALLOWED_ORIGINS || "")
@@ -32,6 +39,7 @@ const Login = () => {
 
     try {
       const data = await googleLogin(response.credential);
+      clearStoredAuthNotice();
       persistAuthSession(data);
       await refreshCurrentUserSession();
       navigate("/clients/select");
@@ -40,6 +48,14 @@ const Login = () => {
       setError({ api: "Google login failed" });
     }
   }, [navigate]);
+
+  useEffect(() => {
+    if (!toast) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   useEffect(() => {
     if (!googleClientId || !googleButtonRef.current) return;
@@ -96,6 +112,7 @@ const Login = () => {
 
       console.log("Login success:", data);
 
+      clearStoredAuthNotice();
       persistAuthSession(data);
       await refreshCurrentUserSession();
       navigate("/clients/select");
@@ -108,6 +125,7 @@ const Login = () => {
 
   return (
     <div>
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
       <div className="bg-[#F8F8FC] flex flex-col min-h-screen pb-10">
 
         {/* Top Logo */}

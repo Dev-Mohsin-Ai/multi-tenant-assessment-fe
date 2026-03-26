@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   FiX,
   FiFlag,
@@ -37,10 +37,11 @@ import { downloadInitiativePdf } from '../../shared/services/reportService'
 import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
 import AppSelect from '../../shared/components/AppSelect'
-import { mapInitiativeToApi } from './initiativeMapper'
+import { mapInitiativeFromApi, mapInitiativeToApi } from './initiativeMapper'
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const INITIATIVE_TEMPLATE_KEY = 'initiativeTemplateById'
+const ORGANIZATION_CONTACTS_CACHE = new Map()
 
 const formatResponseTypeLabel = (value) =>
   String(value || '')
@@ -173,6 +174,113 @@ const writeInitiativeTemplateMap = (value) => {
     localStorage.setItem(INITIATIVE_TEMPLATE_KEY, JSON.stringify(value || {}))
   } catch {
     // ignore
+  }
+}
+
+const normalizeOrganizationContacts = (contactsData) =>
+  (Array.isArray(contactsData) ? contactsData : contactsData?.users || [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => ({
+      id: item.id,
+      full_name: item.full_name || item.email || `User ${item.id}`,
+    }))
+
+const getCachedOrganizationContacts = (organizationId) =>
+  ORGANIZATION_CONTACTS_CACHE.get(String(organizationId)) || []
+
+const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key)
+
+const buildEmptyFormState = ({ presetYear, presetQuarter }) => {
+  const startDate = new Date().toISOString().slice(0, 10)
+  const defaultQuarter = presetQuarter || getQuarterFromDate(startDate)
+  const defaultYear = presetYear || new Date().getFullYear()
+  const hasPresetSchedule = Boolean(presetQuarter && presetYear)
+
+  return {
+    id: createId(),
+    title: '',
+    summary: '',
+    startDate,
+    endDate: startDate,
+    status: 'Open',
+    priority: 'Medium',
+    contactId: null,
+    goalId: null,
+    isScheduled: hasPresetSchedule,
+    year: defaultYear,
+    quarter: defaultQuarter,
+    actionItems: [],
+    goals: [],
+    assets: [],
+    oneTimeFees: [],
+    recurringFees: [],
+    templateId: null,
+    templateTitle: '',
+    linkedItems: [],
+    linkedSubcategoryIds: [],
+  }
+}
+
+const buildFormState = ({ initiative, presetYear, presetQuarter }) => {
+  const emptyState = buildEmptyFormState({ presetYear, presetQuarter })
+  if (!initiative || typeof initiative !== 'object') {
+    return emptyState
+  }
+
+  const mapped = mapInitiativeFromApi(initiative)
+  const resolvedStatus =
+    typeof initiative.status === 'string' && STATUS_OPTIONS.includes(initiative.status)
+      ? initiative.status
+      : mapped.status
+  const resolvedPriority =
+    typeof initiative.priority === 'string' &&
+    PRIORITY_OPTIONS.some((option) => option.value === initiative.priority)
+      ? initiative.priority
+      : mapped.priority
+  const linkedItems = Array.isArray(initiative.linkedItems)
+    ? initiative.linkedItems
+    : mapped.linkedItems
+  const derivedLinkedIds = Array.isArray(linkedItems)
+    ? linkedItems.map((item) => item?.subcategoryId || item?.responseId).filter(Boolean)
+    : []
+
+  return {
+    ...emptyState,
+    ...mapped,
+    id: initiative.id ?? mapped.id ?? emptyState.id,
+    title: hasOwn(initiative, 'title') ? String(initiative.title || '') : mapped.title,
+    summary: hasOwn(initiative, 'summary') ? String(initiative.summary || '') : mapped.summary,
+    startDate: initiative.startDate ?? mapped.startDate ?? emptyState.startDate,
+    endDate: initiative.endDate ?? initiative.startDate ?? mapped.startDate ?? emptyState.endDate,
+    status: resolvedStatus ?? emptyState.status,
+    priority: resolvedPriority ?? emptyState.priority,
+    contactId: initiative.contactId ?? mapped.contactId ?? emptyState.contactId,
+    goalId: initiative.goalId ?? mapped.goalId ?? emptyState.goalId,
+    isScheduled:
+      typeof initiative.isScheduled === 'boolean'
+        ? initiative.isScheduled
+        : mapped.isScheduled ?? emptyState.isScheduled,
+    year: initiative.year ?? mapped.year ?? emptyState.year,
+    quarter: initiative.quarter ?? mapped.quarter ?? emptyState.quarter,
+    actionItems: Array.isArray(initiative.actionItems) ? initiative.actionItems : emptyState.actionItems,
+    goals: Array.isArray(initiative.goals) ? initiative.goals : emptyState.goals,
+    assets: Array.isArray(initiative.assets) ? initiative.assets : emptyState.assets,
+    oneTimeFees: Array.isArray(initiative.oneTimeFees)
+      ? initiative.oneTimeFees
+      : mapped.oneTimeFees,
+    recurringFees: Array.isArray(initiative.recurringFees)
+      ? initiative.recurringFees
+      : mapped.recurringFees,
+    templateId: hasOwn(initiative, 'templateId') ? initiative.templateId ?? null : null,
+    templateTitle: hasOwn(initiative, 'templateTitle')
+      ? cleanLinkedText(initiative.templateTitle || '')
+      : '',
+    linkedItems,
+    linkedSubcategoryIds: Array.isArray(initiative.linkedSubcategoryIds)
+      ? initiative.linkedSubcategoryIds
+      : mapped.linkedSubcategoryIds?.length > 0
+        ? mapped.linkedSubcategoryIds
+        : derivedLinkedIds,
   }
 }
 
@@ -523,7 +631,8 @@ const InitiativeDrawer = ({
   presetQuarter,
   onLinkedAssessmentClick = null,
   linkedAssessmentId = null,
-  showTemplateActions = true,
+  showSaveTemplateAction = true,
+  showApplyTemplateAction = true,
 }) => {
   const navigate = useNavigate()
   const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
@@ -563,51 +672,13 @@ const InitiativeDrawer = ({
     }
     return 'bg-gray-50 text-gray-600 border-gray-200'
   }
-  const [form, setForm] = useState(() => {
-    if (initiative) {
-      const derivedLinkedIds = Array.isArray(initiative.linkedItems)
-        ? initiative.linkedItems
-            .map((item) => item.subcategoryId)
-            .filter(Boolean)
-        : []
-      return {
-        ...initiative,
-        templateId: initiative.templateId || null,
-        templateTitle: initiative.templateTitle || '',
-        linkedSubcategoryIds:
-          initiative.linkedSubcategoryIds?.length
-            ? initiative.linkedSubcategoryIds
-            : derivedLinkedIds,
-      }
-    }
-    const startDate = new Date().toISOString().slice(0, 10)
-    const defaultQuarter = presetQuarter || getQuarterFromDate(startDate)
-    const defaultYear = presetYear || new Date().getFullYear()
-    const hasPresetSchedule = Boolean(presetQuarter && presetYear)
-    return {
-      id: createId(),
-      title: '',
-      summary: '',
-      startDate,
-      endDate: startDate,
-      status: 'Open',
-      priority: 'Medium',
-      contactId: null,
-      goalId: null,
-      isScheduled: hasPresetSchedule,
-      year: defaultYear,
-      quarter: defaultQuarter,
-      actionItems: [],
-      goals: [],
-      assets: [],
-      oneTimeFees: [],
-      recurringFees: [],
-      templateId: null,
-      templateTitle: '',
-      linkedItems: [],
-      linkedSubcategoryIds: [],
-    }
-  })
+  const [form, setForm] = useState(() =>
+    buildFormState({
+      initiative: mode === 'edit' ? initiative : null,
+      presetYear,
+      presetQuarter,
+    })
+  )
 
   const yearOptions = useMemo(() => {
     if (years?.length) {
@@ -618,7 +689,9 @@ const InitiativeDrawer = ({
   }, [years])
 
   const [availableGoals, setAvailableGoals] = useState([])
-  const [availableContacts, setAvailableContacts] = useState([])
+  const [availableContacts, setAvailableContacts] = useState(() =>
+    getCachedOrganizationContacts(activeOrganizationId)
+  )
   const [loadingGoals, setLoadingGoals] = useState(false)
   const [loadingContacts, setLoadingContacts] = useState(false)
   const [goalError, setGoalError] = useState('')
@@ -637,6 +710,7 @@ const InitiativeDrawer = ({
   const goalInitiatives = []
   const handleOpenInitiativeOnRoadmap = () => {}
   const linkedItemsRef = useRef([])
+  const removedLinkedKeysRef = useRef(new Set())
   const filteredTemplateOptions = useMemo(() => {
     const query = String(templateSearch || '').trim().toLowerCase()
     if (!query) {
@@ -648,6 +722,49 @@ const InitiativeDrawer = ({
       return title.includes(query) || summary.includes(query)
     })
   }, [templateOptions, templateSearch])
+
+  const loadTemplateOptions = useCallback(
+    async ({ force = false, showLoader = true } = {}) => {
+      if (!showApplyTemplateAction) {
+        return
+      }
+      if (!force && templateOptions.length > 0) {
+        return
+      }
+
+      if (showLoader || templateOptions.length === 0) {
+        setLoadingTemplates(true)
+      }
+      setTemplateError('')
+
+      try {
+        const data = await getInitiativeTemplates()
+        const list = Array.isArray(data) ? data : data?.templates || data?.items || []
+        setTemplateOptions(list)
+      } catch {
+        setTemplateOptions((prev) => prev)
+        setTemplateError('Unable to load initiative templates')
+      } finally {
+        setLoadingTemplates(false)
+      }
+    },
+    [showApplyTemplateAction, templateOptions.length]
+  )
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const organizationId = Number(activeOrganizationId)
+    if (!organizationId) {
+      return
+    }
+    const cachedContacts = getCachedOrganizationContacts(organizationId)
+    if (cachedContacts.length === 0) {
+      return
+    }
+    setAvailableContacts((prev) => (prev.length > 0 ? prev : cachedContacts))
+  }, [activeOrganizationId, open])
 
   useEffect(() => {
     const organizationId = Number(activeOrganizationId)
@@ -675,22 +792,18 @@ const InitiativeDrawer = ({
           return
         }
         const goalList = Array.isArray(goalsData) ? goalsData : goalsData?.goals || []
-        const contactList = (Array.isArray(contactsData) ? contactsData : contactsData?.users || [])
-          .filter((item) => item && typeof item === 'object')
-          .map((item) => ({
-            id: item.id,
-            full_name: item.full_name || item.email || `User ${item.id}`,
-          }))
+        const contactList = normalizeOrganizationContacts(contactsData)
 
         setAvailableGoals(goalList)
         setAvailableContacts(contactList)
+        ORGANIZATION_CONTACTS_CACHE.set(String(organizationId), contactList)
       })
       .catch(() => {
         if (!isActive) {
           return
         }
         setGoalError('Unable to load goals')
-        setAvailableContacts([])
+        setAvailableContacts(getCachedOrganizationContacts(organizationId))
       })
       .finally(() => {
         if (!isActive) {
@@ -720,6 +833,23 @@ const InitiativeDrawer = ({
       }
     })
   }, [availableContacts, open])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const handleEscapeKey = (event) => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleEscapeKey)
+    return () => {
+      window.removeEventListener('keydown', handleEscapeKey)
+    }
+  }, [onClose, open])
 
   useEffect(() => {
     if (!open) {
@@ -766,39 +896,32 @@ const InitiativeDrawer = ({
   }, [form?.id, form.templateId, form.templateTitle, open])
 
   useEffect(() => {
+    if (!open || !showApplyTemplateAction || templateOptions.length > 0) {
+      return
+    }
+    void loadTemplateOptions({ showLoader: false })
+  }, [loadTemplateOptions, open, showApplyTemplateAction, templateOptions.length])
+
+  useEffect(() => {
     if (!open || !templateDialogOpen) {
       return
     }
+    void loadTemplateOptions({ force: templateOptions.length === 0, showLoader: false })
+  }, [loadTemplateOptions, open, templateDialogOpen, templateOptions.length])
 
-    let isActive = true
-    setLoadingTemplates(true)
-    setTemplateError('')
-
-    const loadTemplatesForDialog = async () => {
-      try {
-        const data = await getInitiativeTemplates()
-        const list = Array.isArray(data) ? data : data?.templates || data?.items || []
-        if (!isActive) {
-          return
-        }
-        setTemplateOptions(list)
-      } catch {
-        if (isActive) {
-          setTemplateOptions([])
-          setTemplateError('Unable to load initiative templates')
-        }
-      } finally {
-        if (isActive) {
-          setLoadingTemplates(false)
-        }
-      }
+  useEffect(() => {
+    if (!open) {
+      return
     }
-
-    void loadTemplatesForDialog()
-    return () => {
-      isActive = false
-    }
-  }, [open, templateDialogOpen])
+    removedLinkedKeysRef.current = new Set()
+    setForm(
+      buildFormState({
+        initiative: mode === 'edit' ? initiative : null,
+        presetYear,
+        presetQuarter,
+      })
+    )
+  }, [initiative, mode, open, presetQuarter, presetYear])
 
   useEffect(() => {
     if (!open || mode !== 'edit' || !form?.id) {
@@ -806,6 +929,7 @@ const InitiativeDrawer = ({
     }
 
     let isActive = true
+    const currentInitiativeId = form.id
 
     const hydrateLinkedAssessments = async () => {
       try {
@@ -816,8 +940,12 @@ const InitiativeDrawer = ({
 
         const initiativeData = data?.initiative || data
         const apiLinkedItems = mapLinkedSubcategoriesToItems(initiativeData)
-        const storedLinks = getLinkedResponsesFromStorage(form.id, linkedAssessmentId)
         const currentLinkedItems = linkedItemsRef.current
+        const removedLinkedKeys = removedLinkedKeysRef.current
+        const storedLinks =
+          linkedAssessmentId === null || linkedAssessmentId === undefined
+            ? getLinkedResponsesFromStorage(form.id)
+            : getLinkedResponsesFromStorage(form.id, linkedAssessmentId)
         const assessmentScopeKey =
           linkedAssessmentId === null || linkedAssessmentId === undefined
             ? null
@@ -854,6 +982,9 @@ const InitiativeDrawer = ({
 
         apiLinkedItems.forEach((item, index) => {
           const responseKey = getLinkedItemKey(item)
+          if (responseKey && removedLinkedKeys.has(String(responseKey))) {
+            return
+          }
           const key = responseKey || `api-${index}`
           if (!key) {
             return
@@ -873,7 +1004,7 @@ const InitiativeDrawer = ({
 
         effectiveStoredLinks.forEach((link) => {
           const key = String(link.responseId)
-          if (!key) {
+          if (!key || removedLinkedKeys.has(key)) {
             return
           }
           itemsByKey.set(
@@ -957,14 +1088,24 @@ const InitiativeDrawer = ({
         )
 
         setForm((prev) => {
-          if (!isActive || String(prev.id) !== String(form.id)) {
+          if (!isActive || String(prev.id) !== String(currentInitiativeId)) {
             return prev
           }
-          return {
-            ...prev,
-            linkedItems: sanitizedLinkedItems,
-            linkedSubcategoryIds: nextLinkedSubcategoryIds,
-          }
+          return buildFormState({
+            initiative: {
+              ...prev,
+              ...initiativeData,
+              actionItems: prev.actionItems,
+              goals: prev.goals,
+              assets: prev.assets,
+              templateId: prev.templateId,
+              templateTitle: prev.templateTitle,
+              linkedItems: sanitizedLinkedItems,
+              linkedSubcategoryIds: nextLinkedSubcategoryIds,
+            },
+            presetYear,
+            presetQuarter,
+          })
         })
       } catch {
         // keep existing linked items if enrichment fails
@@ -976,7 +1117,7 @@ const InitiativeDrawer = ({
     return () => {
       isActive = false
     }
-  }, [form?.id, linkedAssessmentId, mode, open])
+  }, [form?.id, form?.linkedSubcategoryIds, linkedAssessmentId, mode, open, presetQuarter, presetYear])
 
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -1030,7 +1171,7 @@ const InitiativeDrawer = ({
   }
 
   const handleOpenTemplateDialog = () => {
-    if (!showTemplateActions) {
+    if (!showApplyTemplateAction) {
       return
     }
     setTemplateDialogOpen(true)
@@ -1270,7 +1411,7 @@ const InitiativeDrawer = ({
             <p className="text-xs text-gray-500">Manage roadmap initiatives in one place.</p>
           </div>
           <div className="flex items-center gap-2">
-            {mode === 'edit' && showTemplateActions && (
+            {mode === 'edit' && showSaveTemplateAction && (
               <button
                 type="button"
                 onClick={handleSaveAsTemplate}
@@ -1280,7 +1421,7 @@ const InitiativeDrawer = ({
                 {savingTemplate ? 'Saving...' : 'Save as Template'}
               </button>
             )}
-            {showTemplateActions && (
+            {showApplyTemplateAction && (
               <button
                 type="button"
                 onClick={handleOpenTemplateDialog}
@@ -1418,7 +1559,7 @@ const InitiativeDrawer = ({
                   value={form.contactId ?? ''}
                   onChange={(nextValue) => handleChange('contactId', Number(nextValue))}
                   placeholder={loadingContacts ? 'Loading contacts...' : 'Select contact'}
-                  isDisabled={loadingContacts || availableContacts.length === 0}
+                  isDisabled={loadingContacts && availableContacts.length === 0}
                   className="w-full"
                 />
               </div>
@@ -1709,17 +1850,25 @@ const InitiativeDrawer = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            const linkedKey = String(
+                              item.responseId ?? item.subcategoryId ?? item.id ?? ''
+                            )
+                            if (linkedKey) {
+                              removedLinkedKeysRef.current.add(linkedKey)
+                            }
                             setForm((prev) => ({
                               ...prev,
                               linkedItems: prev.linkedItems.filter(
                                 (entry, entryIndex) => entryIndex !== index
                               ),
                               linkedSubcategoryIds: prev.linkedSubcategoryIds.filter(
-                                (subcategoryId) => subcategoryId !== item.subcategoryId
+                                (subcategoryId) =>
+                                  String(subcategoryId) !==
+                                  String(item.subcategoryId ?? item.responseId ?? '')
                               ),
                             }))
-                          }
+                          }}
                           className="text-red-600 hover:text-red-700"
                           aria-label="Remove linked assessment"
                         >
@@ -1874,7 +2023,7 @@ const InitiativeDrawer = ({
           </div>
         </div>
 
-        {showTemplateActions && templateDialogOpen && (
+        {showApplyTemplateAction && templateDialogOpen && (
           <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
               <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
