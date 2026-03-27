@@ -1,5 +1,5 @@
 import React from 'react'
-import { FiCheckCircle, FiInfo, FiXCircle } from 'react-icons/fi'
+import { FiCheckCircle, FiInfo, FiX, FiXCircle } from 'react-icons/fi'
 
 const TOAST_VARIANTS = {
   success: {
@@ -39,7 +39,7 @@ const ToastMessage = ({ toast, onClose }) => {
           className="rounded px-1 text-xs hover:bg-black/10"
           aria-label="Close notification"
         >
-          ✕
+          <FiX className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>
@@ -47,3 +47,4 @@ const ToastMessage = ({ toast, onClose }) => {
 }
 
 export default ToastMessage
+

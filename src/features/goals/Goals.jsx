@@ -38,24 +38,20 @@ import { useAppStore } from '../../shared/store/useAppStore'
 import { syncStoredAssessmentLinksForInitiative } from '../../shared/utils/initiativeLinks'
 import { hasMeaningfulLinkedItems } from '../../shared/utils/linkedAssessments'
 import { formatApiError, isGoalNotFoundError } from '../../shared/utils/apiErrors'
-
-const buildScheduleOptions = (years) =>
-  years.flatMap((year) => QUARTERS.map((quarter) => `${quarter}, ${year}`))
-
-const UNSCHEDULED_PLACEMENTS_KEY = 'unscheduledPlacements'
-const parseQuarterSlotKey = (value) => {
-  const match = /^(\d{4})-(Q[1-4])$/.exec(String(value || ''))
-  if (!match) {
-    return null
-  }
-  return { year: Number(match[1]), quarter: match[2] }
-}
+import {
+  applyPlacementOverride,
+  buildPlacementStorageKey,
+  buildScheduleOptions,
+  NOT_SCHEDULED_LABEL,
+  parseQuarterSlotKey,
+  readPlacementOverrides,
+  writePlacementOverrides,
+} from '../../shared/utils/initiativeScheduling'
 
 const Goals = () => {
   const navigate = useNavigate()
   const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const currentYear = new Date().getFullYear()
-  const NOT_SCHEDULED_LABEL = 'Not Scheduled'
   const years = useMemo(
     () => Array.from({ length: 5 }, (_, index) => currentYear + index),
     [currentYear]
@@ -134,31 +130,14 @@ const Goals = () => {
   }))
   const [rowMenu, setRowMenu] = useState(null)
   const [goalMenuId, setGoalMenuId] = useState(null)
-  const placementsStorageKey = useMemo(() => {
-    const organizationId = Number(activeOrganizationId)
-    if (!organizationId) {
-      return UNSCHEDULED_PLACEMENTS_KEY
-    }
-    return `${UNSCHEDULED_PLACEMENTS_KEY}:${organizationId}`
-  }, [activeOrganizationId])
+  const placementsStorageKey = useMemo(
+    () => buildPlacementStorageKey(activeOrganizationId),
+    [activeOrganizationId]
+  )
   const [placementOverrides, setPlacementOverrides] = useState(() => ({}))
 
   useEffect(() => {
-    try {
-      const scopedRaw = localStorage.getItem(placementsStorageKey)
-      if (scopedRaw) {
-        setPlacementOverrides(JSON.parse(scopedRaw))
-        return
-      }
-      if (placementsStorageKey !== UNSCHEDULED_PLACEMENTS_KEY) {
-        const legacyRaw = localStorage.getItem(UNSCHEDULED_PLACEMENTS_KEY)
-        setPlacementOverrides(legacyRaw ? JSON.parse(legacyRaw) : {})
-        return
-      }
-      setPlacementOverrides({})
-    } catch {
-      setPlacementOverrides({})
-    }
+    setPlacementOverrides(readPlacementOverrides(placementsStorageKey))
   }, [placementsStorageKey])
 
   const persistPlacementOverrides = useCallback(
@@ -170,15 +149,7 @@ const Goals = () => {
             : updater && typeof updater === 'object'
               ? updater
               : {}
-        try {
-          const serialized = JSON.stringify(next)
-          localStorage.setItem(placementsStorageKey, serialized)
-          if (placementsStorageKey !== UNSCHEDULED_PLACEMENTS_KEY) {
-            localStorage.setItem(UNSCHEDULED_PLACEMENTS_KEY, serialized)
-          }
-        } catch {
-          // ignore storage failures
-        }
+        writePlacementOverrides(placementsStorageKey, next)
         return next
       })
     },
@@ -1092,13 +1063,16 @@ const Goals = () => {
           : null
 
         persistPlacementOverrides((prev) => {
-          const nextPlacements = { ...(prev || {}) }
-          if (updates?.isScheduled === false) {
-            nextPlacements[String(initiativeId)] = 'unscheduled'
-          } else if (updates?.isScheduled === true && requestedYearValue && requestedQuarterValue) {
-            nextPlacements[String(initiativeId)] = `${requestedYearValue}-${requestedQuarterValue}`
-          }
-          return nextPlacements
+          return applyPlacementOverride(prev, initiativeId, {
+            isScheduled:
+              updates?.isScheduled === false
+                ? false
+                : updates?.isScheduled === true
+                  ? true
+                  : null,
+            year: requestedYearValue,
+            quarter: requestedQuarterValue,
+          })
         })
       }
 
@@ -1181,17 +1155,25 @@ const Goals = () => {
           : null
 
         persistPlacementOverrides((prev) => {
-          const nextPlacements = { ...(prev || {}) }
           if (requestedScheduleState === false) {
-            nextPlacements[String(initiativeId)] = 'unscheduled'
-          } else if (requestedScheduleState === true && requestedYearValue && requestedQuarterValue) {
-            nextPlacements[String(initiativeId)] = `${requestedYearValue}-${requestedQuarterValue}`
-          } else if (normalizedMapped.isScheduled) {
-            delete nextPlacements[String(initiativeId)]
-          } else {
-            nextPlacements[String(initiativeId)] = 'unscheduled'
+            return applyPlacementOverride(prev, initiativeId, { isScheduled: false })
           }
-          return nextPlacements
+
+          if (requestedScheduleState === true) {
+            return applyPlacementOverride(prev, initiativeId, {
+              isScheduled: true,
+              year: requestedYearValue,
+              quarter: requestedQuarterValue,
+            })
+          }
+
+          return applyPlacementOverride(prev, initiativeId, {
+            isScheduled: normalizedMapped.isScheduled ? true : false,
+            year: normalizedMapped.year,
+            quarter: normalizedMapped.quarter,
+            clearWhenScheduledWithoutSlot: normalizedMapped.isScheduled,
+            fallbackToUnscheduled: !normalizedMapped.isScheduled,
+          })
         })
         setLoadError('')
       } catch (error) {
@@ -1394,7 +1376,7 @@ const Goals = () => {
                             initiative.contactName ||
                             CONTACTS.find((contact) => Number(contact.id) === Number(initiative.contactId))
                               ?.full_name ||
-                            '—'
+                            '-'
                           const priorityValue = initiative.priority || PRIORITY_OPTIONS[0]?.value
 
                           return (
@@ -1864,3 +1846,5 @@ const Goals = () => {
 }
 
 export default Goals
+
+

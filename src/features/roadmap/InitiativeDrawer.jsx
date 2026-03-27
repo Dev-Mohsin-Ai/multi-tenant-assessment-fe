@@ -1688,8 +1688,8 @@ const InitiativeDrawer = ({
                                       {item.title || 'Untitled initiative'}
                                     </div>
                                     <div className="mt-0.5 text-xs text-gray-500">
-                                      {scheduleLabel} • {item.status || 'Open'}
-                                      {isCurrent ? ' • Currently open' : ''}
+                                      {scheduleLabel} - {item.status || 'Open'}
+                                      {isCurrent ? ' - Currently open' : ''}
                                     </div>
                                   </div>
                                 </button>
@@ -1863,3 +1863,6 @@ const InitiativeDrawer = ({
 }
 
 export default InitiativeDrawer
+
+
+

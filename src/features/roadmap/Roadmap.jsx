@@ -7,6 +7,7 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiCalendar,
+  FiX,
 } from 'react-icons/fi'
 import { TbDragDrop2 } from 'react-icons/tb'
 import InitiativeDrawer from './InitiativeDrawer'
@@ -37,14 +38,19 @@ import AppSelect from '../../shared/components/AppSelect'
 import { syncStoredAssessmentLinksForInitiative } from '../../shared/utils/initiativeLinks'
 import { hasMeaningfulLinkedItems } from '../../shared/utils/linkedAssessments'
 import { formatApiError, isGoalNotFoundError } from '../../shared/utils/apiErrors'
+import {
+  applyPlacementOverride,
+  buildPlacementStorageKey,
+  isQuarterSlotKey,
+  readPlacementOverrides,
+  toQuarterSlotKey,
+  UNSCHEDULED_PLACEMENTS_KEY,
+  writePlacementOverrides,
+} from '../../shared/utils/initiativeScheduling'
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
 const OPEN_INITIATIVE_KEY = 'openInitiativeId'
-const UNSCHEDULED_PLACEMENTS_KEY = 'unscheduledPlacements'
-const isQuarterSlotKey = (value) => /^\d{4}-Q[1-4]$/.test(String(value || ''))
-
-
 
 const getQuarterOrderValue = (year, quarter) => {
   const numericYear = Number(year)
@@ -99,6 +105,7 @@ const Roadmap = () => {
   const prevUpcoming = useMemo(() => shiftQuarter(windowStart, -1), [windowStart])
   const nextUpcoming = useMemo(() => shiftQuarter(windowStart, 4), [windowStart])
 
+
   const [initiatives, setInitiatives] = useState([])
   const [loadingInitiatives, setLoadingInitiatives] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -129,38 +136,20 @@ const Roadmap = () => {
   const syncingScrollRef = useRef(null)
   const [topScrollWidth, setTopScrollWidth] = useState(0)
 
-  const placementsStorageKey = useMemo(() => {
-    const organizationId = Number(activeOrganizationId)
-    if (!organizationId) {
-      return UNSCHEDULED_PLACEMENTS_KEY
-    }
-    return `${UNSCHEDULED_PLACEMENTS_KEY}:${organizationId}`
-  }, [activeOrganizationId])
+  const placementsStorageKey = useMemo(
+    () => buildPlacementStorageKey(activeOrganizationId),
+    [activeOrganizationId]
+  )
 
-  const [unscheduledPlacements, setUnscheduledPlacements] = useState(() => {
-    try {
-      const raw = localStorage.getItem(UNSCHEDULED_PLACEMENTS_KEY)
-      return raw ? JSON.parse(raw) : {}
-    } catch {
-      return {}
-    }
-  })
+  const [unscheduledPlacements, setUnscheduledPlacements] = useState(() =>
+    readPlacementOverrides(UNSCHEDULED_PLACEMENTS_KEY)
+  )
   const [placementsHydrated, setPlacementsHydrated] = useState(false)
 
   useEffect(() => {
     setPlacementsHydrated(false)
     try {
-      const raw = localStorage.getItem(placementsStorageKey)
-      if (raw) {
-        setUnscheduledPlacements(JSON.parse(raw))
-      } else if (placementsStorageKey !== UNSCHEDULED_PLACEMENTS_KEY) {
-        const legacyRaw = localStorage.getItem(UNSCHEDULED_PLACEMENTS_KEY)
-        setUnscheduledPlacements(legacyRaw ? JSON.parse(legacyRaw) : {})
-      } else {
-        setUnscheduledPlacements({})
-      }
-    } catch {
-      setUnscheduledPlacements({})
+      setUnscheduledPlacements(readPlacementOverrides(placementsStorageKey))
     } finally {
       setPlacementsHydrated(true)
     }
@@ -170,15 +159,7 @@ const Roadmap = () => {
     if (!placementsHydrated) {
       return
     }
-    try {
-      const serialized = JSON.stringify(unscheduledPlacements || {})
-      localStorage.setItem(placementsStorageKey, serialized)
-      if (placementsStorageKey !== UNSCHEDULED_PLACEMENTS_KEY) {
-        localStorage.setItem(UNSCHEDULED_PLACEMENTS_KEY, serialized)
-      }
-    } catch {
-      // ignore storage failures
-    }
+    writePlacementOverrides(placementsStorageKey, unscheduledPlacements)
   }, [placementsHydrated, placementsStorageKey, unscheduledPlacements])
   const [pendingLink, setPendingLink] = useState(() => {
     const pending = localStorage.getItem(PENDING_LINK_KEY)
@@ -704,20 +685,14 @@ const Roadmap = () => {
           )
         )
 
-        setUnscheduledPlacements((prev) => {
-          const next = { ...(prev || {}) }
-          const placementId = String(normalizedMapped.id ?? drawerState.initiative.id)
-          if (!payload.isScheduled) {
-            next[placementId] = 'unscheduled'
-            return next
-          }
-          if (payload.year && payload.quarter) {
-            next[placementId] = `${payload.year}-${payload.quarter}`
-            return next
-          }
-          delete next[placementId]
-          return next
-        })
+        setUnscheduledPlacements((prev) =>
+          applyPlacementOverride(prev, normalizedMapped.id ?? drawerState.initiative.id, {
+            isScheduled: Boolean(payload.isScheduled),
+            year: payload.year,
+            quarter: payload.quarter,
+            clearWhenScheduledWithoutSlot: Boolean(payload.isScheduled),
+          })
+        )
 
         handleCloseDrawer()
       } catch (error) {
@@ -851,7 +826,7 @@ const Roadmap = () => {
       return String(placementKey)
     }
     if (item.isScheduled && item.year && item.quarter) {
-      return `${item.year}-${item.quarter}`
+      return toQuarterSlotKey(item.year, item.quarter) || `${item.year}-${item.quarter}`
     }
     return placementKey || 'unscheduled'
   }
@@ -866,59 +841,13 @@ const Roadmap = () => {
       return
     }
 
-    const targetSlotKey = `${year}-${quarter}`
+    const targetSlotKey = toQuarterSlotKey(year, quarter) || `${year}-${quarter}`
     const targetInitiative = targetInitiativeId
       ? initiatives.find((item) => String(item.id) === String(targetInitiativeId))
       : null
     const rawTargetOrder = Number(targetInitiative?.order)
     const insertOrder = Number.isFinite(rawTargetOrder) ? rawTargetOrder : null
 
-    if (!moved.isScheduled) {
-      setUnscheduledPlacements((prev) => ({ ...(prev || {}), [String(id)]: targetSlotKey }))
-      setInitiatives((prev) =>
-        prev.map((item) => {
-          const itemId = String(item.id)
-          const itemSlot =
-            itemId === String(id)
-              ? targetSlotKey
-              : item.isScheduled
-                ? `${item.year}-${item.quarter}`
-                : (unscheduledPlacements?.[itemId] || null)
-          const currentOrder = Number(item.order)
-          const resolvedOrder = Number.isFinite(currentOrder) ? currentOrder : -1
-          if (
-            insertOrder !== null &&
-            itemId !== String(id) &&
-            itemSlot === targetSlotKey &&
-            resolvedOrder >= insertOrder
-          ) {
-            return { ...item, order: resolvedOrder + 1 }
-          }
-          if (itemId === String(id)) {
-            if (insertOrder !== null) {
-              return { ...item, order: insertOrder }
-            }
-            const maxOrder = prev.reduce((max, candidate) => {
-              const candidateId = String(candidate.id)
-              const candidateSlot =
-                candidateId === String(id)
-                  ? targetSlotKey
-                  : candidate.isScheduled
-                    ? `${candidate.year}-${candidate.quarter}`
-                    : (unscheduledPlacements?.[candidateId] || null)
-              if (candidateSlot !== targetSlotKey) {
-                return max
-              }
-              const candidateOrder = Number(candidate.order)
-              return Number.isFinite(candidateOrder) ? Math.max(max, candidateOrder) : max
-            }, -1)
-            return { ...item, order: maxOrder + 1 }
-          }
-          return item
-        })
-      )
-      return
-    }
 
     setUnscheduledPlacements((prev) => {
       if (!prev || !Object.prototype.hasOwnProperty.call(prev, String(id))) {
@@ -1362,7 +1291,7 @@ const Roadmap = () => {
           </button>
 
           <div className="text-sm font-semibold text-[rgb(5,117,204)]">
-            Showing {windowSlots[0].quarter} {windowSlots[0].year} â€“{' '}
+            Showing {windowSlots[0].quarter} {windowSlots[0].year} -{' '}
             {windowSlots[windowSlots.length - 1].quarter}{' '}
             {windowSlots[windowSlots.length - 1].year}
           </div>
@@ -1655,7 +1584,7 @@ const Roadmap = () => {
                 aria-label="Close export dialog"
                 disabled={isExportingPdf}
               >
-                ×
+                <FiX />
               </button>
             </div>
 
@@ -1868,6 +1797,12 @@ const InitiativeCard = ({
 }
 
 export default Roadmap
+
+
+
+
+
+
 
 
 
