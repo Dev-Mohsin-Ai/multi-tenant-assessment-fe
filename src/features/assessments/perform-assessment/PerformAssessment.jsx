@@ -12,6 +12,7 @@ import {
   getInitiatives,
   getInitiativeById,
   createInitiative,
+  linkSubcategories,
   updateInitiative,
   deleteInitiative,
 } from '../../../shared/services/initiativeService'
@@ -274,6 +275,22 @@ const formatDateLabel = (value) => {
   })
 }
 
+const resolveApiMessage = (payload, fallback) => {
+  if (typeof payload === 'string' && cleanText(payload)) {
+    return cleanText(payload)
+  }
+  if (typeof payload?.message === 'string' && cleanText(payload.message)) {
+    return cleanText(payload.message)
+  }
+  if (typeof payload?.detail === 'string' && cleanText(payload.detail)) {
+    return cleanText(payload.detail)
+  }
+  return fallback
+}
+
+const resolveApiErrorMessage = (error, fallback) =>
+  resolveApiMessage(error?.response?.data, fallback)
+
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const AUTO_SAVE_INTERVAL_MS = 30000
 
@@ -354,6 +371,23 @@ const PerformAssessment = ({
   const pendingCommentsRef = useRef({})
   const isFlushingResponsesRef = useRef(false)
   const isFlushingCommentsRef = useRef(false)
+
+  useEffect(() => {
+    if (!initiativePicker.isOpen) {
+      return
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setInitiativePicker({ responseId: null, mode: 'existing', isOpen: false })
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [initiativePicker.isOpen])
 
   useEffect(() => {
     let isMounted = true
@@ -1191,57 +1225,103 @@ const PerformAssessment = ({
     })
   }
 
-  const handleSelectExistingInitiative = (item, initiativeId) => {
+  const handleSelectExistingInitiative = async (item, initiativeId) => {
     if (!assessmentId || !initiativeId) {
       return
     }
     const responseId = item.responseId || item.id
-    const nextLinks = { ...initiativeLinks, [responseId]: initiativeId }
-    setInitiativeLinks(nextLinks)
-    saveLinksForAssessment(assessmentId, nextLinks)
-    const organizationId =
-      assessment?.organizationId || Number(activeOrganizationId)
-    let initiativeToPersist = null
-    setInitiatives((prev) =>
-      prev.map((initiative) => {
-        if (String(initiative.id) !== String(initiativeId)) {
-          return initiative
-        }
-        const linkEntry = {
-          assessmentId,
-          responseId,
-          subcategoryId: responseId,
-          title: item.title,
-          categoryTitle: item.categoryTitle,
-          responseLabel: item.responseLabel,
-        }
-        const existing = initiative.linkedItems || []
-        const alreadyLinked = existing.some(
-          (entry) =>
-            String(entry.assessmentId) === String(assessmentId) &&
-            String(entry.responseId) === String(responseId)
-        )
-        if (alreadyLinked) {
-          return initiative
-        }
-        const updatedInitiative = {
-          ...initiative,
-          linkedItems: [...existing, linkEntry],
-          linkedSubcategoryIds: Array.from(
-            new Set([...(initiative.linkedSubcategoryIds || []), responseId])
-          ),
-        }
-        initiativeToPersist = updatedInitiative
-        return updatedInitiative
-      })
-    )
-    if (initiativeToPersist && organizationId) {
-      updateInitiative(
-        initiativeId,
-        mapInitiativeToApi(initiativeToPersist, organizationId)
-      ).catch(() => {})
+    if (!responseId) {
+      setToast({ type: 'error', message: 'Unable to link initiative. Please try again.' })
+      return
     }
-    setInitiativePicker({ responseId: null, mode: 'existing', isOpen: false })
+
+    const linkEntry = {
+      assessmentId,
+      responseId,
+      subcategoryId: responseId,
+      title: item.title,
+      categoryTitle: item.categoryTitle,
+      responseLabel: item.responseLabel,
+    }
+
+    try {
+      await linkSubcategories(initiativeId, [responseId])
+
+      let latest = null
+      try {
+        latest = await getInitiativeById(initiativeId)
+      } catch {
+        latest = null
+      }
+
+      setInitiatives((prev) =>
+        prev.map((initiative) => {
+          if (String(initiative.id) !== String(initiativeId)) {
+            return initiative
+          }
+
+          const existing = Array.isArray(initiative.linkedItems) ? initiative.linkedItems : []
+          const alreadyLinked = existing.some(
+            (entry) =>
+              String(entry.assessmentId) === String(assessmentId) &&
+              String(entry.responseId) === String(responseId)
+          )
+
+          if (!latest) {
+            if (alreadyLinked) {
+              return initiative
+            }
+            return {
+              ...initiative,
+              linkedItems: [...existing, linkEntry],
+              linkedSubcategoryIds: Array.from(
+                new Set([...(initiative.linkedSubcategoryIds || []), responseId])
+              ),
+            }
+          }
+
+          const mappedBase = mapInitiativeFromApi(latest, {
+            linkedItemsById: { [initiativeId]: [linkEntry] },
+          })
+
+          return {
+            ...initiative,
+            ...mappedBase,
+            title: mappedBase.title || initiative.title || '',
+            summary: mappedBase.summary || initiative.summary || '',
+            oneTimeFees:
+              mappedBase.oneTimeFees?.length > 0
+                ? mappedBase.oneTimeFees
+                : initiative.oneTimeFees || [],
+            recurringFees:
+              mappedBase.recurringFees?.length > 0
+                ? mappedBase.recurringFees
+                : initiative.recurringFees || [],
+            templateId: initiative.templateId ?? mappedBase.templateId ?? null,
+            templateTitle: initiative.templateTitle || mappedBase.templateTitle || '',
+            linkedItems:
+              mappedBase.linkedItems?.length > 0
+                ? mappedBase.linkedItems
+                : alreadyLinked
+                  ? existing
+                  : [...existing, linkEntry],
+            linkedSubcategoryIds:
+              mappedBase.linkedSubcategoryIds?.length > 0
+                ? mappedBase.linkedSubcategoryIds
+                : Array.from(
+                    new Set([...(initiative.linkedSubcategoryIds || []), responseId])
+                  ),
+          }
+        })
+      )
+
+      const nextLinks = { ...initiativeLinks, [responseId]: initiativeId }
+      setInitiativeLinks(nextLinks)
+      saveLinksForAssessment(assessmentId, nextLinks)
+      setInitiativePicker({ responseId: null, mode: 'existing', isOpen: false })
+    } catch {
+      setToast({ type: 'error', message: 'Unable to link initiative. Please try again.' })
+    }
   }
 
   const handleSaveInitiativeFromAssessment = (updated) => {
@@ -1375,78 +1455,130 @@ const PerformAssessment = ({
       return
     }
 
-    const previous = initiativeEditor.initiative
-    const previousItems = Array.isArray(previous?.linkedItems) ? previous.linkedItems : []
-    const nextItems = Array.isArray(updated?.linkedItems) ? updated.linkedItems : []
+    const handleUpdateFromAssessment = async () => {
+      const previous = initiativeEditor.initiative
+      const previousItems = Array.isArray(previous?.linkedItems) ? previous.linkedItems : []
+      const nextItems = Array.isArray(updated?.linkedItems) ? updated.linkedItems : []
 
-    const getResponseKey = (item) =>
-      String(item?.responseId ?? item?.subcategoryId ?? item?.id ?? '')
+      const getResponseKey = (item) =>
+        String(item?.responseId ?? item?.subcategoryId ?? item?.id ?? '')
 
-    const nextResponseKeys = new Set(nextItems.map(getResponseKey).filter(Boolean))
-    const removedResponseKeys = previousItems
-      .map(getResponseKey)
-      .filter((key) => key && !nextResponseKeys.has(key))
+      const nextResponseKeys = new Set(nextItems.map(getResponseKey).filter(Boolean))
+      const removedResponseKeys = previousItems
+        .map(getResponseKey)
+        .filter((key) => key && !nextResponseKeys.has(key))
 
-    const organizationId =
-      assessment?.organizationId || Number(activeOrganizationId)
-    if (organizationId) {
-      updateInitiative(updated.id, mapInitiativeToApi(updated, organizationId)).catch(
-        () => {}
-      )
-    }
+      const organizationId =
+        assessment?.organizationId || Number(activeOrganizationId)
 
-    if (assessmentId) {
-      const resolvedInitiativeId = updated?.id
-      const nextLinks = { ...initiativeLinks }
+      if (!organizationId || !updated?.id) {
+        setToast({
+          type: 'error',
+          message: 'Unable to update initiative. Please try again.',
+        })
+        return
+      }
 
-      removedResponseKeys.forEach((responseKey) => {
-        if (String(nextLinks[responseKey]) === String(resolvedInitiativeId)) {
-          delete nextLinks[responseKey]
+      try {
+        const saved = await updateInitiative(
+          updated.id,
+          mapInitiativeToApi(updated, organizationId)
+        )
+        const latest = await getInitiativeById(updated.id).catch(() => saved)
+        const mappedBase = mapInitiativeFromApi(latest, {
+          linkedItemsById: Array.isArray(updated?.linkedItems)
+            ? { [updated.id]: updated.linkedItems }
+            : undefined,
+        })
+        const normalizedUpdated = {
+          ...mappedBase,
+          title: mappedBase.title || updated.title || '',
+          summary: mappedBase.summary || updated.summary || '',
+          oneTimeFees:
+            mappedBase.oneTimeFees?.length > 0
+              ? mappedBase.oneTimeFees
+              : updated.oneTimeFees || [],
+          recurringFees:
+            mappedBase.recurringFees?.length > 0
+              ? mappedBase.recurringFees
+              : updated.recurringFees || [],
+          templateId: updated.templateId || mappedBase.templateId || null,
+          templateTitle: updated.templateTitle || mappedBase.templateTitle || '',
         }
-      })
 
-      nextResponseKeys.forEach((responseKey) => {
-        nextLinks[responseKey] = resolvedInitiativeId
-      })
+        if (assessmentId) {
+          const resolvedInitiativeId = normalizedUpdated?.id ?? updated.id
+          const nextLinks = { ...initiativeLinks }
 
-      setInitiativeLinks(nextLinks)
-      saveLinksForAssessment(assessmentId, nextLinks)
+          removedResponseKeys.forEach((responseKey) => {
+            if (String(nextLinks[responseKey]) === String(resolvedInitiativeId)) {
+              delete nextLinks[responseKey]
+            }
+          })
+
+          nextResponseKeys.forEach((responseKey) => {
+            nextLinks[responseKey] = resolvedInitiativeId
+          })
+
+          setInitiativeLinks(nextLinks)
+          saveLinksForAssessment(assessmentId, nextLinks)
+        }
+
+        setInitiatives((prev) =>
+          prev.map((item) =>
+            String(item.id) === String(updated.id) ? normalizedUpdated : item
+          )
+        )
+        setInitiativeEditor({
+          open: false,
+          mode: 'edit',
+          initiative: null,
+          pendingLinkedItem: null,
+        })
+      } catch (error) {
+        setToast({
+          type: 'error',
+          message: resolveApiErrorMessage(error, 'Unable to update initiative.'),
+        })
+      }
     }
 
-    setInitiatives((prev) =>
-      prev.map((item) =>
-        String(item.id) === String(updated.id) ? updated : item
-      )
-    )
-    setInitiativeEditor({
-      open: false,
-      mode: 'edit',
-      initiative: null,
-      pendingLinkedItem: null,
-    })
+    void handleUpdateFromAssessment()
   }
 
-  const handleDeleteInitiativeFromAssessment = (initiativeId) => {
-    deleteInitiative(initiativeId).catch(() => {})
-    setInitiatives((prev) =>
-      prev.filter((item) => String(item.id) !== String(initiativeId))
-    )
-    if (assessmentId) {
-      const nextLinks = { ...initiativeLinks }
-      Object.keys(nextLinks).forEach((key) => {
-        if (String(nextLinks[key]) === String(initiativeId)) {
-          delete nextLinks[key]
-        }
+  const handleDeleteInitiativeFromAssessment = async (initiativeId) => {
+    try {
+      const response = await deleteInitiative(initiativeId)
+
+      setInitiatives((prev) =>
+        prev.filter((item) => String(item.id) !== String(initiativeId))
+      )
+      if (assessmentId) {
+        const nextLinks = { ...initiativeLinks }
+        Object.keys(nextLinks).forEach((key) => {
+          if (String(nextLinks[key]) === String(initiativeId)) {
+            delete nextLinks[key]
+          }
+        })
+        setInitiativeLinks(nextLinks)
+        saveLinksForAssessment(assessmentId, nextLinks)
+      }
+      setInitiativeEditor({
+        open: false,
+        mode: 'edit',
+        initiative: null,
+        pendingLinkedItem: null,
       })
-      setInitiativeLinks(nextLinks)
-      saveLinksForAssessment(assessmentId, nextLinks)
+      setToast({
+        type: 'success',
+        message: resolveApiMessage(response, 'Initiative deleted.'),
+      })
+    } catch (error) {
+      setToast({
+        type: 'error',
+        message: resolveApiErrorMessage(error, 'Unable to delete initiative.'),
+      })
     }
-    setInitiativeEditor({
-      open: false,
-      mode: 'edit',
-      initiative: null,
-      pendingLinkedItem: null,
-    })
   }
 
   const handleLinkedAssessmentClick = (item) => {

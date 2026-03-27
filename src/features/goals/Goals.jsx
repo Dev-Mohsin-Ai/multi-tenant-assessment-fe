@@ -17,6 +17,7 @@ import {
   deleteInitiative,
   getInitiativeById,
   getInitiatives,
+  getLinkedSubcategories,
   unlinkInitiativeFromGoal,
   updateInitiative,
 } from '../../shared/services/initiativeService'
@@ -27,46 +28,19 @@ import {
   getGoals,
   updateGoal as updateGoalApi,
 } from '../../shared/services/goalService'
-import { mapInitiativeFromApi, mapInitiativeToApi } from '../roadmap/initiativeMapper'
+import {
+  mapInitiativeFromApi,
+  mapInitiativeToApi,
+  mapLinkedSubcategoriesFromApi,
+} from '../roadmap/initiativeMapper'
 import { CONTACTS, PRIORITY_OPTIONS, QUARTERS, STATUS_OPTIONS } from '../roadmap/initiativeConstants'
 import { useAppStore } from '../../shared/store/useAppStore'
 import { syncStoredAssessmentLinksForInitiative } from '../../shared/utils/initiativeLinks'
+import { hasMeaningfulLinkedItems } from '../../shared/utils/linkedAssessments'
+import { formatApiError, isGoalNotFoundError } from '../../shared/utils/apiErrors'
 
 const buildScheduleOptions = (years) =>
   years.flatMap((year) => QUARTERS.map((quarter) => `${quarter}, ${year}`))
-
-const formatApiError = (error, fallback) => {
-  const status = error?.response?.status
-  const data = error?.response?.data
-  const detail =
-    typeof data === 'string'
-      ? data
-      : typeof data?.detail === 'string'
-        ? data.detail
-        : Array.isArray(data?.detail)
-          ? data.detail
-              .map((item) => item?.msg || item?.message || '')
-              .filter(Boolean)
-              .join(', ')
-          : ''
-
-  const statusLabel = status ? ` (HTTP ${status})` : ''
-  const detailLabel = detail ? `: ${detail}` : ''
-  return `${fallback}${statusLabel}${detailLabel}`
-}
-
-const isGoalNotFoundError = (error) => {
-  const status = error?.response?.status
-  const data = error?.response?.data
-  const detail =
-    typeof data === 'string'
-      ? data
-      : typeof data?.detail === 'string'
-        ? data.detail
-        : ''
-
-  return Number(status) === 404 && /goal not found/i.test(detail)
-}
 
 const UNSCHEDULED_PLACEMENTS_KEY = 'unscheduledPlacements'
 const parseQuarterSlotKey = (value) => {
@@ -454,6 +428,23 @@ const Goals = () => {
     if (!dialogState.open) {
       return
     }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closeGoalDialog()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [dialogState.open])
+
+  useEffect(() => {
+    if (!dialogState.open) {
+      return
+    }
     if (dialogState.mode !== 'existing') {
       return
     }
@@ -575,18 +566,22 @@ const Goals = () => {
 
       try {
         const detailed = await getInitiativeById(initiativeId)
-        const fallbackLinkedItems = Array.isArray(fallback?.linkedItems)
-          ? fallback.linkedItems
-          : []
-        const mappedBase = mapInitiativeFromApi(detailed, {
-          linkedItemsById: fallbackLinkedItems.length > 0
-            ? { [initiativeId]: fallbackLinkedItems }
-            : undefined,
-        })
+        let mappedBase = mapInitiativeFromApi(detailed)
+        if (!hasMeaningfulLinkedItems(mappedBase.linkedItems)) {
+          const linkedSubcategories = await getLinkedSubcategories(initiativeId).catch(() => [])
+          const enrichedLinkedItems = mapLinkedSubcategoriesFromApi(linkedSubcategories)
+          if (hasMeaningfulLinkedItems(enrichedLinkedItems)) {
+            mappedBase = mapInitiativeFromApi(detailed, {
+              linkedItemsById: { [initiativeId]: enrichedLinkedItems },
+            })
+          }
+        }
         const mapped = {
           ...mappedBase,
           title: mappedBase.title || fallback?.title || '',
           summary: mappedBase.summary || fallback?.summary || '',
+          linkedItems: mappedBase.linkedItems || [],
+          linkedSubcategoryIds: mappedBase.linkedSubcategoryIds || [],
           oneTimeFees:
             mappedBase.oneTimeFees?.length > 0
               ? mappedBase.oneTimeFees

@@ -27,33 +27,32 @@ import { getOrganizationUsers } from '../../shared/services/organizationService'
 import {
   applyInitiativeTemplate,
   getInitiativeById,
+  getLinkedSubcategories,
   getInitiativeTemplateById,
   getInitiativeTemplates,
   saveInitiativeAsTemplate,
   updateInitiative,
 } from '../../shared/services/initiativeService'
-import { getAssessmentById } from '../../shared/services/assessmentService'
 import { downloadInitiativePdf } from '../../shared/services/reportService'
 import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
 import AppSelect from '../../shared/components/AppSelect'
+import { INITIATIVE_LINKS_STORAGE_KEY } from '../../shared/utils/initiativeLinks'
+import {
+  cleanLinkedText,
+  getLinkedItemKey,
+  isMeaningfulLinkedItem,
+  mapLinkedItemsFromSource,
+  mergeLinkedItem,
+  normalizeLinkedResponseLabel,
+} from '../../shared/utils/linkedAssessments'
 import { mapInitiativeFromApi, mapInitiativeToApi } from './initiativeMapper'
 
-const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const INITIATIVE_TEMPLATE_KEY = 'initiativeTemplateById'
 const ORGANIZATION_CONTACTS_CACHE = new Map()
 
-const formatResponseTypeLabel = (value) =>
-  String(value || '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
-
 const toArray = (value) => (Array.isArray(value) ? value : [])
-
-const cleanLinkedText = (value) =>
-  String(value ?? '')
-    .replace(/\s*\(Copy\)\s*/gi, ' ')
-    .trim()
+const isNumericLike = (value) => /^-?\d+(\.\d+)?$/.test(String(value || '').trim())
 
 const resolveTemplateId = (template) =>
   template?.id ?? template?.template_id ?? template?.templateId ?? null
@@ -284,174 +283,6 @@ const buildFormState = ({ initiative, presetYear, presetQuarter }) => {
   }
 }
 
-const isNumericLike = (value) => /^-?\d+(\.\d+)?$/.test(String(value || '').trim())
-
-const isPlaceholderLinkedTitle = (value) => {
-  const normalized = cleanLinkedText(value)
-  if (!normalized) {
-    return true
-  }
-  return (
-    /^untitled subcategory$/i.test(normalized) ||
-    /^sub\s*category\s*\d+$/i.test(normalized) ||
-    /^subcategory\s*\d+$/i.test(normalized) ||
-    /^question\s*\d+$/i.test(normalized)
-  )
-}
-
-const normalizeResponseLabel = (value) => {
-  const normalized = cleanLinkedText(value)
-  if (!normalized || isNumericLike(normalized)) {
-    return ''
-  }
-  if (/^[a-z_]+$/.test(normalized)) {
-    return formatResponseTypeLabel(normalized)
-  }
-  return normalized
-}
-
-const resolveLinkedSubcategoryId = (sub = {}) =>
-  sub.subcategory_id ??
-  sub.subcategoryId ??
-  sub.subcategory?.id ??
-  sub.sub_category?.id ??
-  sub.template_subcategory_id ??
-  sub.templateSubcategoryId ??
-  sub.template_subcategory?.id ??
-  sub.templateSubcategory?.id ??
-  sub.response_subcategory_id ??
-  sub.responseSubcategoryId ??
-  sub.response?.subcategory_id ??
-  sub.response?.subcategoryId ??
-  sub.response?.subcategory?.id ??
-  sub.response_id ??
-  sub.responseId ??
-  sub.response?.id ??
-  sub.id
-
-const isMeaningfulLinkedItem = (item) => {
-  const title = cleanLinkedText(item?.title)
-  const categoryTitle = cleanLinkedText(item?.categoryTitle)
-  const responseLabel = normalizeResponseLabel(item?.responseLabel)
-  const hasOnlyUnknownLabel =
-    !title && !categoryTitle && /^unknown$/i.test(responseLabel)
-  return Boolean(title || categoryTitle || (responseLabel && !hasOnlyUnknownLabel))
-}
-
-const getLinkedItemKey = (item, fallbackKey = '') => {
-  const primary = item?.responseId ?? item?.subcategoryId ?? item?.id
-  if (primary !== null && primary !== undefined && String(primary).trim()) {
-    return String(primary)
-  }
-  return fallbackKey
-}
-
-const mergeLinkedItem = (existing = {}, candidate = {}) => {
-  const existingTitle = cleanLinkedText(existing.title)
-  const candidateTitle = cleanLinkedText(candidate.title)
-  const existingCategory = cleanLinkedText(existing.categoryTitle)
-  const candidateCategory = cleanLinkedText(candidate.categoryTitle)
-  const existingResponseLabel = normalizeResponseLabel(existing.responseLabel)
-  const candidateResponseLabel = normalizeResponseLabel(candidate.responseLabel)
-
-  return {
-    ...existing,
-    ...candidate,
-    assessmentId: existing.assessmentId || candidate.assessmentId || null,
-    responseId: existing.responseId || candidate.responseId || existing.subcategoryId || candidate.subcategoryId,
-    subcategoryId:
-      existing.subcategoryId || candidate.subcategoryId || existing.responseId || candidate.responseId,
-    title:
-      existingTitle && !isPlaceholderLinkedTitle(existingTitle)
-        ? existingTitle
-        : candidateTitle,
-    categoryTitle: existingCategory || candidateCategory,
-    description: cleanLinkedText(existing.description) || cleanLinkedText(candidate.description),
-    responseLabel: existingResponseLabel || candidateResponseLabel,
-  }
-}
-
-const mapLinkedSubcategoriesToItems = (initiativeData) => {
-  const linked = Array.isArray(initiativeData?.linked_subcategories)
-    ? initiativeData.linked_subcategories
-    : []
-
-  return linked.map((sub) => {
-    if (!sub || typeof sub !== 'object') {
-      const responseId =
-        sub !== null && sub !== undefined && String(sub).trim() ? sub : null
-      return {
-        assessmentId: null,
-        responseId,
-        subcategoryId: responseId,
-        title: '',
-        categoryTitle: '',
-        description: '',
-        responseLabel: '',
-      }
-    }
-
-    const responseId = resolveLinkedSubcategoryId(sub)
-
-    const responseLabelCandidates = [
-      sub.response_label,
-      sub.responseLabel,
-      sub.selected_response_label,
-      sub.selectedResponseLabel,
-      sub.selected_response?.label,
-      sub.selectedResponse?.label,
-      sub.response?.label,
-      sub.response?.title,
-      sub.selected_response_type ? formatResponseTypeLabel(sub.selected_response_type) : '',
-      sub.selectedResponseType ? formatResponseTypeLabel(sub.selectedResponseType) : '',
-      sub.selected_response?.response_type
-        ? formatResponseTypeLabel(sub.selected_response.response_type)
-        : '',
-      sub.response_type ? formatResponseTypeLabel(sub.response_type) : '',
-    ]
-
-    const responseLabel =
-      responseLabelCandidates.map((value) => normalizeResponseLabel(value)).find(Boolean) || ''
-
-    return {
-      assessmentId:
-        sub.assessment_id ??
-        sub.assessmentId ??
-        sub.assessment?.id ??
-        sub.assessment?.assessment_id ??
-        null,
-      responseId,
-      subcategoryId: responseId,
-      title: cleanLinkedText(
-        sub.subcategory_title ||
-          sub.subcategoryTitle ||
-          sub.subcategory?.title ||
-          sub.response?.subcategory?.title ||
-          sub.title ||
-          sub.name ||
-          sub.question ||
-          sub.label ||
-          ''
-      ),
-      categoryTitle: cleanLinkedText(
-        sub.category_title ||
-          sub.categoryTitle ||
-          sub.category_name ||
-          sub.categoryName ||
-          sub.subcategory?.category?.title ||
-          sub.subcategory?.category?.name ||
-          sub.response?.subcategory?.category?.title ||
-          sub.response?.subcategory?.category?.name ||
-          sub.category?.title ||
-          sub.category?.name ||
-          ''
-      ),
-      description: cleanLinkedText(sub.description || ''),
-      responseLabel,
-    }
-  })
-}
-
 const getLinkedResponsesFromStorage = (initiativeId, assessmentScopeId = null) => {
   if (!initiativeId) {
     return []
@@ -461,7 +292,7 @@ const getLinkedResponsesFromStorage = (initiativeId, assessmentScopeId = null) =
       ? null
       : String(assessmentScopeId)
   try {
-    const stored = JSON.parse(localStorage.getItem(INITIATIVE_LINKS_KEY) || '{}')
+    const stored = JSON.parse(localStorage.getItem(INITIATIVE_LINKS_STORAGE_KEY) || '{}')
     return Object.entries(stored).flatMap(([assessmentId, links]) =>
       scopeKey !== null && String(assessmentId) !== scopeKey
         ? []
@@ -495,128 +326,6 @@ const shouldKeepByAssessmentScope = (
     return true
   }
   return String(item.assessmentId) === String(assessmentScopeId)
-}
-
-const getAssessmentResponseMap = (data) => {
-  const assessment = data?.assessment || data
-  const categories = toArray(
-    assessment?.categories ||
-      assessment?.template?.categories ||
-      assessment?.template_categories ||
-      assessment?.templateCategories
-  )
-  const result = new Map()
-
-  categories.forEach((category) => {
-    const categoryTitle =
-      category?.title || category?.name || category?.label || ''
-    const subcategories = toArray(
-      category?.subcategories ||
-        category?.sub_categories ||
-        category?.items ||
-        category?.questions ||
-        category?.subcategory
-    )
-
-    subcategories.forEach((subcategory) => {
-      const responseId = subcategory?.id
-      if (!responseId) {
-        return
-      }
-      const rawOptions = toArray(
-        subcategory?.response_options ||
-          subcategory?.responseOptions ||
-          subcategory?.responses ||
-          subcategory?.options
-      )
-      const selectedResponseId =
-        subcategory?.selected_response_id ||
-        subcategory?.selectedResponseId ||
-        subcategory?.selected_response?.id ||
-        subcategory?.selectedResponse?.id ||
-        null
-
-      const selectedOption = rawOptions.find(
-        (option) =>
-          String(option?.id) === String(selectedResponseId) ||
-          String(option?.response_id) === String(selectedResponseId)
-      )
-
-      const selectedLabel = normalizeResponseLabel(
-        subcategory?.selected_response?.label ||
-          subcategory?.selectedResponse?.label ||
-          (subcategory?.selected_response?.response_type
-            ? formatResponseTypeLabel(subcategory.selected_response.response_type)
-            : '') ||
-          (selectedOption?.label ||
-            selectedOption?.title ||
-            selectedOption?.name ||
-            (selectedOption?.response_type
-              ? formatResponseTypeLabel(selectedOption.response_type)
-              : '')) ||
-          ''
-      )
-
-      const title = cleanLinkedText(
-        subcategory?.title ||
-          subcategory?.subcategory_title ||
-          subcategory?.subcategoryTitle ||
-          subcategory?.sub_category_title ||
-          subcategory?.subCategoryTitle ||
-          subcategory?.question_title ||
-          subcategory?.questionTitle ||
-          subcategory?.question_text ||
-          subcategory?.questionText ||
-          subcategory?.template_subcategory?.title ||
-          subcategory?.templateSubcategory?.title ||
-          subcategory?.template_sub_category?.title ||
-          subcategory?.templateSubCategory?.title ||
-          subcategory?.template_question?.title ||
-          subcategory?.templateQuestion?.title ||
-          subcategory?.name ||
-          subcategory?.question ||
-          subcategory?.label ||
-          ''
-      )
-
-      const setMatch = (key, responseLabelOverride = '') => {
-        if (key === null || key === undefined || String(key).trim() === '') {
-          return
-        }
-        const existing = result.get(String(key))
-        result.set(String(key), {
-          title: title || existing?.title || '',
-          categoryTitle: categoryTitle || existing?.categoryTitle || '',
-          responseLabel:
-            normalizeResponseLabel(responseLabelOverride) ||
-            selectedLabel ||
-            existing?.responseLabel ||
-            '',
-        })
-      }
-
-      setMatch(responseId)
-      setMatch(
-        subcategory?.selected_response_id ??
-          subcategory?.selectedResponseId ??
-          subcategory?.selected_response?.id ??
-          subcategory?.selectedResponse?.id
-      )
-
-      rawOptions.forEach((option) => {
-        const optionId = option?.id ?? option?.response_id
-        const optionLabel = normalizeResponseLabel(
-          option?.label ||
-            option?.title ||
-            option?.name ||
-            (option?.response_type ? formatResponseTypeLabel(option.response_type) : '')
-        )
-        setMatch(optionId, optionLabel)
-      })
-    })
-  })
-
-  return result
 }
 
 const InitiativeDrawer = ({
@@ -939,7 +648,18 @@ const InitiativeDrawer = ({
         }
 
         const initiativeData = data?.initiative || data
-        const apiLinkedItems = mapLinkedSubcategoriesToItems(initiativeData)
+        let apiLinkedItems = mapLinkedItemsFromSource(initiativeData)
+        const hasMeaningfulApiRows = apiLinkedItems.some((item) => isMeaningfulLinkedItem(item))
+        if (!hasMeaningfulApiRows) {
+          const linkedSubcategoriesData = await getLinkedSubcategories(form.id).catch(() => [])
+          if (!isActive) {
+            return
+          }
+          const fallbackLinkedItems = mapLinkedItemsFromSource(linkedSubcategoriesData)
+          if (fallbackLinkedItems.some((item) => isMeaningfulLinkedItem(item))) {
+            apiLinkedItems = fallbackLinkedItems
+          }
+        }
         const currentLinkedItems = linkedItemsRef.current
         const removedLinkedKeys = removedLinkedKeysRef.current
         const storedLinks =
@@ -951,20 +671,56 @@ const InitiativeDrawer = ({
             ? null
             : String(linkedAssessmentId)
 
+        if (assessmentScopeKey === null) {
+          const sanitizedApiItems = apiLinkedItems
+            .filter((item) => {
+              const responseKey = getLinkedItemKey(item)
+              return !(responseKey && removedLinkedKeys.has(String(responseKey)))
+            })
+            .map((item) => mergeLinkedItem({}, item))
+          const nextLinkedSubcategoryIds = Array.from(
+            new Set(
+              sanitizedApiItems
+                .map((item) => item.subcategoryId || item.responseId)
+                .filter(Boolean)
+            )
+          )
+
+          setForm((prev) => {
+            if (!isActive || String(prev.id) !== String(currentInitiativeId)) {
+              return prev
+            }
+            return buildFormState({
+              initiative: {
+                ...prev,
+                ...initiativeData,
+                actionItems: prev.actionItems,
+                goals: prev.goals,
+                assets: prev.assets,
+                templateId: prev.templateId,
+                templateTitle: prev.templateTitle,
+                linkedItems: sanitizedApiItems,
+                linkedSubcategoryIds: nextLinkedSubcategoryIds,
+              },
+              presetYear,
+              presetQuarter,
+            })
+          })
+          return
+        }
+
         const scopedResponseKeys =
-          assessmentScopeKey === null
-            ? null
-            : new Set([
-                ...storedLinks.map((link) => String(link.responseId)),
-                ...currentLinkedItems
-                  .filter(
-                    (item) =>
-                      item?.assessmentId &&
-                      String(item.assessmentId) === assessmentScopeKey
-                  )
-                  .map((item) => getLinkedItemKey(item))
-                  .filter(Boolean),
-              ])
+          new Set([
+            ...storedLinks.map((link) => String(link.responseId)),
+            ...currentLinkedItems
+              .filter(
+                (item) =>
+                  item?.assessmentId &&
+                  String(item.assessmentId) === assessmentScopeKey
+              )
+              .map((item) => getLinkedItemKey(item))
+              .filter(Boolean),
+          ])
 
         const knownResponseKeys = new Set()
         const itemsByKey = new Map()
@@ -995,12 +751,17 @@ const InitiativeDrawer = ({
           }
         })
 
+        const shouldUseStoredLinks =
+          apiLinkedItems.length === 0
         const scopedStoredLinksByKnownKey =
           knownResponseKeys.size > 0
             ? storedLinks.filter((link) => knownResponseKeys.has(String(link.responseId)))
             : storedLinks
-        const effectiveStoredLinks =
-          scopedStoredLinksByKnownKey.length > 0 ? scopedStoredLinksByKnownKey : storedLinks
+        const effectiveStoredLinks = !shouldUseStoredLinks
+          ? []
+          : scopedStoredLinksByKnownKey.length > 0
+            ? scopedStoredLinksByKnownKey
+            : storedLinks
 
         effectiveStoredLinks.forEach((link) => {
           const key = String(link.responseId)
@@ -1017,49 +778,8 @@ const InitiativeDrawer = ({
           )
         })
 
-        const assessmentIds = Array.from(
-          new Set(
-            Array.from(itemsByKey.values())
-              .map((item) => item.assessmentId)
-              .filter(Boolean)
-              .map(String)
-          )
-        )
-
-        const assessmentResponseMaps = new Map()
-        await Promise.all(
-          assessmentIds.map(async (assessmentId) => {
-            try {
-              const assessmentData = await getAssessmentById(assessmentId)
-              assessmentResponseMaps.set(
-                String(assessmentId),
-                getAssessmentResponseMap(assessmentData)
-              )
-            } catch {
-              assessmentResponseMaps.set(String(assessmentId), new Map())
-            }
-          })
-        )
-
         const nextLinkedItems = Array.from(itemsByKey.values())
-          .map((item) => {
-            const responseKey = String(item.responseId || item.subcategoryId || '')
-            const assessmentMap = assessmentResponseMaps.get(String(item.assessmentId))
-            const assessmentMatch = assessmentMap?.get(responseKey)
-            if (!assessmentMatch) {
-              return mergeLinkedItem({}, item)
-            }
-            return {
-              ...mergeLinkedItem(item, assessmentMatch),
-              title: cleanLinkedText(assessmentMatch.title) || cleanLinkedText(item.title),
-              categoryTitle:
-                cleanLinkedText(assessmentMatch.categoryTitle) ||
-                cleanLinkedText(item.categoryTitle),
-              responseLabel:
-                normalizeResponseLabel(assessmentMatch.responseLabel) ||
-                normalizeResponseLabel(item.responseLabel),
-            }
-          })
+          .map((item) => mergeLinkedItem({}, item))
           .filter((item) =>
             shouldKeepByAssessmentScope(item, linkedAssessmentId, scopedResponseKeys)
           )
@@ -1117,7 +837,7 @@ const InitiativeDrawer = ({
     return () => {
       isActive = false
     }
-  }, [form?.id, form?.linkedSubcategoryIds, linkedAssessmentId, mode, open, presetQuarter, presetYear])
+  }, [form?.id, linkedAssessmentId, mode, open, presetQuarter, presetYear])
 
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -1818,8 +1538,9 @@ const InitiativeDrawer = ({
                 <div className="space-y-2">
                   {form.linkedItems.map((item, index) => {
                     const hasAssessmentLink = Boolean(item.assessmentId)
-                    const cleanTitle = cleanLinkedText(item.title) || 'Linked subcategory'
-                    const responseLabel = normalizeResponseLabel(item.responseLabel) || 'Unknown'
+                    const cleanTitle = cleanLinkedText(item.title) || 'Assessment link'
+                    const categoryTitle = cleanLinkedText(item.categoryTitle)
+                    const responseLabel = normalizeLinkedResponseLabel(item.responseLabel)
 
                     return (
                       <div
@@ -1838,15 +1559,22 @@ const InitiativeDrawer = ({
                           <div className="font-semibold">
                             {cleanTitle}
                           </div>
-                          <div className="mt-1">
-                            <span
-                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getResponseBadge(
-                                responseLabel
-                              )}`}
-                            >
-                              {responseLabel}
-                            </span>
-                          </div>
+                          {categoryTitle ? (
+                            <div className="mt-0.5 text-[11px] text-gray-500">
+                              {categoryTitle}
+                            </div>
+                          ) : null}
+                          {responseLabel ? (
+                            <div className="mt-1">
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getResponseBadge(
+                                  responseLabel
+                                )}`}
+                              >
+                                {responseLabel}
+                              </span>
+                            </div>
+                          ) : null}
                         </button>
                         <button
                           type="button"

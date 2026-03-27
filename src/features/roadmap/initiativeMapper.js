@@ -7,13 +7,15 @@ import {
   getQuarterStartDate,
   createId,
 } from './initiativeConstants'
+import {
+  getLinkedItemKey,
+  mapLinkedSubcategoriesFromApi,
+  mapLinkedSubcategoryFromApi,
+  mergeLinkedItem,
+  resolveLinkedSubcategoryId,
+} from '../../shared/utils/linkedAssessments'
 
 const DEFAULT_CONTACT = { id: null, full_name: 'Unassigned contact' }
-
-const formatResponseTypeLabel = (value) =>
-  String(value || '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
 
 const cleanText = (value) =>
   String(value ?? '')
@@ -35,169 +37,7 @@ export const resolveInitiativeEntity = (initiative = {}) =>
   initiative && typeof initiative === 'object' && initiative.initiative
     ? initiative.initiative
     : initiative
-
-const isNumericLike = (value) => /^-?\d+(\.\d+)?$/.test(String(value || '').trim())
-
-const isUsableTitle = (value) => {
-  const normalized = cleanText(value)
-  return (
-    Boolean(normalized) &&
-    !/^untitled subcategory$/i.test(normalized) &&
-    !/^sub\s*category\s*\d+$/i.test(normalized) &&
-    !/^subcategory\s*\d+$/i.test(normalized) &&
-    !/^question\s*\d+$/i.test(normalized)
-  )
-}
-
-const normalizeResponseLabel = (value) => {
-  const normalized = cleanText(value)
-  if (!normalized || isNumericLike(normalized)) {
-    return ''
-  }
-  if (/^[a-z_]+$/.test(normalized)) {
-    return formatResponseTypeLabel(normalized)
-  }
-  return normalized
-}
-
-const resolveResponseLabel = (item) => {
-  const candidates = [
-    item?.response_label,
-    item?.responseLabel,
-    item?.selected_response_label,
-    item?.selectedResponseLabel,
-    item?.selected_response?.label,
-    item?.selectedResponse?.label,
-    item?.response?.label,
-    item?.response?.title,
-    item?.selected_response?.response_type
-      ? formatResponseTypeLabel(item.selected_response.response_type)
-      : '',
-    item?.selectedResponse?.response_type
-      ? formatResponseTypeLabel(item.selectedResponse.response_type)
-      : '',
-    item?.selected_response_type ? formatResponseTypeLabel(item.selected_response_type) : '',
-    item?.selectedResponseType ? formatResponseTypeLabel(item.selectedResponseType) : '',
-    item?.response_type ? formatResponseTypeLabel(item.response_type) : '',
-  ]
-
-  for (const candidate of candidates) {
-    const normalized = normalizeResponseLabel(candidate)
-    if (normalized) {
-      return normalized
-    }
-  }
-
-  return ''
-}
-
-const resolveLinkedSubcategoryId = (sub = {}) =>
-  sub.subcategory_id ??
-  sub.subcategoryId ??
-  sub.subcategory?.id ??
-  sub.sub_category?.id ??
-  sub.template_subcategory_id ??
-  sub.templateSubcategoryId ??
-  sub.template_subcategory?.id ??
-  sub.templateSubcategory?.id ??
-  sub.response_subcategory_id ??
-  sub.responseSubcategoryId ??
-  sub.response?.subcategory_id ??
-  sub.response?.subcategoryId ??
-  sub.response?.subcategory?.id ??
-  sub.response_id ??
-  sub.responseId ??
-  sub.response?.id ??
-  sub.id
-
-const mapLinkedSubcategoryFromApi = (sub = {}) => {
-  if (!sub || typeof sub !== 'object') {
-    const responseId =
-      sub !== null && sub !== undefined && String(sub).trim() ? sub : null
-    return {
-      assessmentId: null,
-      responseId,
-      subcategoryId: responseId,
-      title: '',
-      categoryTitle: '',
-      description: '',
-      responseLabel: '',
-    }
-  }
-
-  const responseId = resolveLinkedSubcategoryId(sub)
-
-  const title = cleanText(
-    sub.subcategory_title ||
-      sub.subcategoryTitle ||
-      sub.subcategory?.title ||
-      sub.response?.subcategory?.title ||
-      sub.title ||
-      sub.name ||
-      sub.question ||
-      sub.label ||
-      ''
-  )
-
-  const categoryTitle = cleanText(
-    sub.category_title ||
-      sub.categoryTitle ||
-      sub.category_name ||
-      sub.categoryName ||
-      sub.subcategory?.category?.title ||
-      sub.subcategory?.category?.name ||
-      sub.response?.subcategory?.category?.title ||
-      sub.response?.subcategory?.category?.name ||
-      sub.category?.title ||
-      sub.category?.name ||
-      ''
-  )
-
-  return {
-    assessmentId:
-      sub.assessment_id ??
-      sub.assessmentId ??
-      sub.assessment?.id ??
-      sub.assessment?.assessment_id ??
-      null,
-    responseId,
-    subcategoryId: responseId,
-    title,
-    categoryTitle,
-    description: cleanText(sub.description || ''),
-    responseLabel: resolveResponseLabel(sub),
-  }
-}
-
-const getLinkedItemKey = (item, fallbackKey) => {
-  const primary = item?.responseId ?? item?.subcategoryId ?? item?.id
-  if (primary !== null && primary !== undefined && String(primary).trim()) {
-    return String(primary)
-  }
-  return fallbackKey
-}
-
-const mergeLinkedItem = (existing = {}, candidate = {}) => {
-  const existingTitle = cleanText(existing.title)
-  const candidateTitle = cleanText(candidate.title)
-  const existingCategory = cleanText(existing.categoryTitle)
-  const candidateCategory = cleanText(candidate.categoryTitle)
-  const existingResponseLabel = normalizeResponseLabel(existing.responseLabel)
-  const candidateResponseLabel = normalizeResponseLabel(candidate.responseLabel)
-
-  return {
-    ...existing,
-    ...candidate,
-    assessmentId: existing.assessmentId || candidate.assessmentId || null,
-    responseId: existing.responseId || candidate.responseId || existing.subcategoryId || candidate.subcategoryId,
-    subcategoryId:
-      existing.subcategoryId || candidate.subcategoryId || existing.responseId || candidate.responseId,
-    title: isUsableTitle(existingTitle) ? existingTitle : candidateTitle,
-    categoryTitle: existingCategory || candidateCategory,
-    description: cleanText(existing.description) || cleanText(candidate.description),
-    responseLabel: existingResponseLabel || candidateResponseLabel,
-  }
-}
+export { mapLinkedSubcategoryFromApi, mapLinkedSubcategoriesFromApi }
 
 export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
   const source = resolveInitiativeEntity(initiative)
@@ -248,9 +88,7 @@ export const mapInitiativeFromApi = (initiative = {}, options = {}) => {
       source.budget?.recurringFees
   )
 
-  const linkedItemsFromApi = Array.isArray(source.linked_subcategories)
-    ? source.linked_subcategories.map((sub) => mapLinkedSubcategoryFromApi(sub))
-    : []
+  const linkedItemsFromApi = mapLinkedSubcategoriesFromApi(source.linked_subcategories)
 
   const optionLinkedItems = Array.isArray(options.linkedItemsById?.[source.id])
     ? options.linkedItemsById[source.id]

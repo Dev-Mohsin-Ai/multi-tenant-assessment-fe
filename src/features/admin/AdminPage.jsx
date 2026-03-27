@@ -523,7 +523,7 @@ const AdminPage = () => {
                           const organizationId = toUserId(organization.id)
                           const isSelected = toUserId(selectedOrganizationId) === organizationId
                           const knownUsers = organizationUsersById[organizationId]
-                          const usersCount = Array.isArray(knownUsers) ? knownUsers.length : 'Unknown'
+                          const usersCount = Array.isArray(knownUsers) ? knownUsers.length : '—'
                           return (
                             <tr
                               key={organizationId}

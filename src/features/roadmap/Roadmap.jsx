@@ -22,14 +22,21 @@ import {
   deleteInitiative,
   getInitiativeById,
   getInitiatives,
+  getLinkedSubcategories,
   updateInitiative,
 } from '../../shared/services/initiativeService'
 import { downloadInitiativesRoadmapPdf } from '../../shared/services/reportService'
-import { mapInitiativeFromApi, mapInitiativeToApi } from './initiativeMapper'
+import {
+  mapInitiativeFromApi,
+  mapInitiativeToApi,
+  mapLinkedSubcategoriesFromApi,
+} from './initiativeMapper'
 import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
 import AppSelect from '../../shared/components/AppSelect'
 import { syncStoredAssessmentLinksForInitiative } from '../../shared/utils/initiativeLinks'
+import { hasMeaningfulLinkedItems } from '../../shared/utils/linkedAssessments'
+import { formatApiError, isGoalNotFoundError } from '../../shared/utils/apiErrors'
 
 const INITIATIVE_LINKS_KEY = 'initiativeLinks'
 const PENDING_LINK_KEY = 'pendingInitiativeLink'
@@ -37,37 +44,7 @@ const OPEN_INITIATIVE_KEY = 'openInitiativeId'
 const UNSCHEDULED_PLACEMENTS_KEY = 'unscheduledPlacements'
 const isQuarterSlotKey = (value) => /^\d{4}-Q[1-4]$/.test(String(value || ''))
 
-const formatApiError = (error, fallback) => {
-  const status = error?.response?.status
-  const data = error?.response?.data
 
-  const detail =
-    typeof data === 'string'
-      ? data
-      : typeof data?.detail === 'string'
-        ? data.detail
-        : Array.isArray(data?.detail)
-          ? data.detail.map((item) => item?.msg || item?.message || '').filter(Boolean).join(', ')
-          : ''
-
-  const statusLabel = status ? ` (HTTP ${status})` : ''
-  const detailLabel = detail ? `: ${detail}` : ''
-
-  return `${fallback}${statusLabel}${detailLabel}`
-}
-
-const isGoalNotFoundError = (error) => {
-  const status = error?.response?.status
-  const data = error?.response?.data
-  const detail =
-    typeof data === 'string'
-      ? data
-      : typeof data?.detail === 'string'
-        ? data.detail
-        : ''
-
-  return Number(status) === 404 && /goal not found/i.test(detail)
-}
 
 const getQuarterOrderValue = (year, quarter) => {
   const numericYear = Number(year)
@@ -566,6 +543,24 @@ const Roadmap = () => {
     setExportError('')
   }
 
+  useEffect(() => {
+    if (!isExportDialogOpen) {
+      return
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && !isExportingPdf) {
+        setIsExportDialogOpen(false)
+        setExportError('')
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isExportDialogOpen, isExportingPdf])
+
   const handleExportTenureChange = (field, value) => {
     setExportTenure((prev) => ({ ...prev, [field]: value }))
   }
@@ -580,8 +575,46 @@ const Roadmap = () => {
     })
   }
 
-  const handleOpenEdit = (initiative) => {
-    setDrawerState({ open: true, mode: 'edit', initiative })
+  const handleOpenEdit = async (initiative) => {
+    const initiativeId = initiative?.id
+    if (!initiativeId) {
+      setDrawerState({ open: true, mode: 'edit', initiative })
+      return
+    }
+
+    try {
+      const detail = await getInitiativeById(initiativeId)
+      let mapped = mapInitiativeFromApi(detail)
+
+      if (!hasMeaningfulLinkedItems(mapped.linkedItems)) {
+        const linkedSubcategories = await getLinkedSubcategories(initiativeId).catch(() => [])
+        const enrichedLinkedItems = mapLinkedSubcategoriesFromApi(linkedSubcategories)
+        if (hasMeaningfulLinkedItems(enrichedLinkedItems)) {
+          mapped = mapInitiativeFromApi(detail, {
+            linkedItemsById: { [initiativeId]: enrichedLinkedItems },
+          })
+        }
+      }
+
+      setDrawerState({
+        open: true,
+        mode: 'edit',
+        initiative: {
+          ...mapped,
+          title: mapped.title || initiative?.title || '',
+          summary: mapped.summary || initiative?.summary || '',
+          linkedItems: mapped.linkedItems || [],
+          linkedSubcategoryIds: mapped.linkedSubcategoryIds || [],
+          oneTimeFees: mapped.oneTimeFees?.length > 0 ? mapped.oneTimeFees : initiative?.oneTimeFees || [],
+          recurringFees:
+            mapped.recurringFees?.length > 0 ? mapped.recurringFees : initiative?.recurringFees || [],
+          templateId: mapped.templateId || initiative?.templateId || null,
+          templateTitle: mapped.templateTitle || initiative?.templateTitle || '',
+        },
+      })
+    } catch {
+      setDrawerState({ open: true, mode: 'edit', initiative })
+    }
   }
 
   const handleCloseDrawer = () => {
@@ -1622,7 +1655,7 @@ const Roadmap = () => {
                 aria-label="Close export dialog"
                 disabled={isExportingPdf}
               >
-                âœ•
+                ×
               </button>
             </div>
 
@@ -1835,3 +1868,9 @@ const InitiativeCard = ({
 }
 
 export default Roadmap
+
+
+
+
+
+

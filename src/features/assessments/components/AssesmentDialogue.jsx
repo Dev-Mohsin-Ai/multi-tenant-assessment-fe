@@ -192,6 +192,19 @@ const AssesmentDialogue = ({
     }
   }, [selectedOrganizationId])
 
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        onClose?.()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
   const handleCreateOrganization = async () => {
     if (isOrganizationLocked) {
       return
