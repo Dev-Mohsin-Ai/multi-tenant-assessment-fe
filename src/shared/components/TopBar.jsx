@@ -212,8 +212,8 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
 
   return (
     <div className="w-full border-b border-gray-200 bg-white px-4 py-3 md:px-6">
-      <div className="flex min-h-11 items-center gap-3 min-w-0">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex min-h-11 min-w-0 flex-wrap items-start gap-3 md:flex-nowrap md:items-center">
+        <div className="flex min-w-0 basis-full items-center gap-3 md:basis-auto md:flex-1">
           <h1
             className="min-w-0 truncate text-xl font-semibold text-gray-900"
             title={clientName}
@@ -229,7 +229,7 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
           </h2>
         </div>
         {showClientControls ? (
-          <>
+          <div className="ml-auto flex w-full items-center justify-end gap-2 sm:gap-3 md:w-auto">
             <button
               type="button"
               onClick={handleToggleFavorite}
@@ -244,7 +244,7 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
             >
               <FiStar className="h-4 w-4" />
             </button>
-            <div className="w-44 shrink-0">
+            <div className="w-full max-w-[220px] shrink-0 md:w-44">
               <AppSelect
                 options={assignmentOptions}
                 value={selectedAssignment}
@@ -256,7 +256,7 @@ const TopBar = ({ activeLabel, clientName = 'Client' }) => {
                 formatOptionLabel={renderSegmentOption}
               />
             </div>
-          </>
+          </div>
         ) : null}
       </div>
     </div>

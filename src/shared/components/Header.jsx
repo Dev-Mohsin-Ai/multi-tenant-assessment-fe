@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import HeaderLogo from '../../assets/HeaderLogo.png'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { FiLogOut } from 'react-icons/fi'
+import { RiAdminLine } from 'react-icons/ri'
 import { useAppStore } from '../store/useAppStore'
 import {
   clearAuthSession,
@@ -18,7 +20,7 @@ const Header = () => {
   const hasToken = hasAuthToken()
   const [resolvedAdmin, setResolvedAdmin] = useState(() => (hasToken ? isCurrentUserAdmin() : false))
   const showLogout = hasToken && location.pathname.startsWith('/clients/select')
-  const showAdmin = hasToken && resolvedAdmin
+  const showAdmin = hasToken && resolvedAdmin && !location.pathname.startsWith('/clients/select')
 
   useEffect(() => {
     let isActive = true
@@ -46,10 +48,10 @@ const Header = () => {
   }
 
   return (
-    <header className="fixed top-0 z-30 h-10 w-full border-b border-white/10 bg-[rgb(12,19,34)] text-white shadow-sm">
-      <div className="flex h-full items-center justify-between px-3 md:px-5">
+    <header className="fixed top-0 z-30 w-full border-b border-white/10 bg-[rgb(12,19,34)] text-white shadow-sm">
+      <div className="flex h-11 items-center justify-between px-3 md:px-5">
         <div
-          className="flex items-center gap-1.5 cursor-pointer"
+          className="flex cursor-pointer items-center gap-2"
           onClick={() => navigate('/clients/select')}
         >
           <img src={HeaderLogo} alt="Atlas" className="h-9 w-9 shrink-0 object-contain" />
@@ -62,8 +64,9 @@ const Header = () => {
             <button
               type="button"
               onClick={() => navigate('/admin')}
-              className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-white/20 px-2 py-1 text-xs font-medium text-white/80 hover:text-white"
             >
+              <RiAdminLine className="h-3.5 w-3.5" />
               Admin
             </button>
           ) : null}
@@ -71,8 +74,9 @@ const Header = () => {
             <button
               type="button"
               onClick={handleLogout}
-              className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-white/20 px-2 py-1 text-xs font-medium text-white/80 hover:text-white"
             >
+              <FiLogOut className="h-3.5 w-3.5" />
               Logout
             </button>
           ) : null}

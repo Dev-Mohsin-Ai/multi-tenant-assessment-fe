@@ -7,13 +7,16 @@ import {
   FiList,
   FiLayers,
   FiMessageSquare,
-  FiRefreshCw,
+  FiPlus,
   FiTrash2,
   FiX,
 } from 'react-icons/fi'
 
+const COMMENT_FIELDS = ['publicComment', 'internalComment']
+
 const AssessmentQuestions = ({
   categories,
+  pendingComments,
   expandedSections,
   expandedItems,
   toggleSection,
@@ -25,6 +28,7 @@ const AssessmentQuestions = ({
   selections,
   handleSelect,
   handleCommentChange,
+  handleResetCommentDraft,
   handleSaveComment,
   handleDeleteComment,
   savingItems,
@@ -39,13 +43,51 @@ const AssessmentQuestions = ({
   const getCommentUi = (itemId) =>
     commentUiByItem[itemId] || {
       open: false,
-      type: null,
-      showTypePicker: false,
-      isEditing: false,
-      forceEditNextSelection: false,
+      editing: {
+        publicComment: false,
+        internalComment: false,
+      },
     }
 
-  const handleCommentIconClick = (itemId) => {
+  const getSavedCommentValue = (item, type) =>
+    type === 'publicComment' ? item?.publicComment || '' : item?.internalComment || ''
+
+  const getDraftCommentValue = (itemId, type, fallbackValue = '') => {
+    const itemDraft = pendingComments?.[itemId]
+    if (itemDraft && Object.prototype.hasOwnProperty.call(itemDraft, type)) {
+      return itemDraft[type] || ''
+    }
+    return fallbackValue
+  }
+
+  const getCommentLabel = (type) =>
+    type === 'publicComment' ? 'Public Comment' : 'Internal Comment'
+
+  const getCommentShortLabel = (type) =>
+    type === 'publicComment' ? 'Public' : 'Internal'
+
+  const getCommentPlaceholder = (type) =>
+    type === 'publicComment' ? 'Add public comment...' : 'Add internal comment...'
+
+  const getCommentStats = (item) => {
+    const hasPublicComment = Boolean(getSavedCommentValue(item, 'publicComment').trim())
+    const hasInternalComment = Boolean(getSavedCommentValue(item, 'internalComment').trim())
+    const commentCount = [hasPublicComment, hasInternalComment].filter(Boolean).length
+    const missingTypes = COMMENT_FIELDS.filter((field) => !getSavedCommentValue(item, field).trim())
+
+    return {
+      hasPublicComment,
+      hasInternalComment,
+      commentCount,
+      missingTypes,
+    }
+  }
+
+  const handleCommentIconClick = (item) => {
+    const itemId = item?.id
+    if (!itemId) {
+      return
+    }
     if (isCompleted || isReadOnly) {
       return
     }
@@ -55,34 +97,17 @@ const AssessmentQuestions = ({
       return next
     })
     setCommentUiByItem((prev) => {
-      const current = prev[itemId] || {
-        open: false,
-        type: null,
-        showTypePicker: false,
-        isEditing: false,
-        forceEditNextSelection: false,
-      }
+      const current = prev[itemId] || getCommentUi(itemId)
       if (current.open) {
         return {
           ...prev,
           [itemId]: {
             ...current,
             open: false,
-            showTypePicker: false,
-            isEditing: false,
-            forceEditNextSelection: false,
-          },
-        }
-      }
-      if (!current.type) {
-        return {
-          ...prev,
-          [itemId]: {
-            ...current,
-            open: true,
-            showTypePicker: true,
-            isEditing: false,
-            forceEditNextSelection: false,
+            editing: {
+              publicComment: false,
+              internalComment: false,
+            },
           },
         }
       }
@@ -91,65 +116,69 @@ const AssessmentQuestions = ({
         [itemId]: {
           ...current,
           open: true,
-          showTypePicker: false,
-          isEditing: false,
-          forceEditNextSelection: false,
+          editing: {
+            publicComment: false,
+            internalComment: false,
+          },
         },
       }
     })
   }
 
-  const handleCommentTypeSelect = (itemId, type, hasValue = false) => {
-    setCommentUiByItem((prev) => {
-      const current = prev[itemId] || {
-        open: false,
-        type: null,
-        showTypePicker: false,
-        isEditing: false,
-        forceEditNextSelection: false,
-      }
-      return {
-        ...prev,
-        [itemId]: {
-          open: true,
-          type,
-          showTypePicker: false,
-          isEditing: current.forceEditNextSelection ? true : !hasValue,
-          forceEditNextSelection: false,
-        },
-      }
-    })
-  }
-
-  const handleCommentEdit = (itemId) => {
+  const handleCommentEdit = (itemId, field) => {
+    if (!itemId) {
+      return
+    }
     setCommentUiByItem((prev) => ({
       ...prev,
       [itemId]: {
-        ...(prev[itemId] || {}),
+        ...(prev[itemId] || getCommentUi(itemId)),
         open: true,
-        showTypePicker: false,
-        isEditing: true,
-        forceEditNextSelection: false,
+        editing: {
+          publicComment: false,
+          internalComment: false,
+          [field]: true,
+        },
+      },
+    }))
+  }
+
+  const handleCommentCancel = (itemId, field) => {
+    handleResetCommentDraft?.(itemId, field)
+    setCommentUiByItem((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || getCommentUi(itemId)),
+        open: true,
+        editing: {
+          ...(prev[itemId]?.editing || {}),
+          [field]: false,
+        },
       },
     }))
   }
 
   useEffect(() => {
     Object.entries(commentUiByItem).forEach(([itemId, ui]) => {
-      if (!ui?.open || !ui?.isEditing || !ui?.type) {
+      if (!ui?.open) {
         return
       }
-      const key = `${itemId}:${ui.type}`
-      const input = commentInputRefs.current[key]
-      if (!input) {
-        return
-      }
-      window.requestAnimationFrame(() => {
-        input.focus()
-        const length = input.value?.length ?? 0
-        if (typeof input.setSelectionRange === 'function') {
-          input.setSelectionRange(length, length)
+      COMMENT_FIELDS.forEach((field) => {
+        if (!ui?.editing?.[field]) {
+          return
         }
+        const key = `${itemId}:${field}`
+        const input = commentInputRefs.current[key]
+        if (!input) {
+          return
+        }
+        window.requestAnimationFrame(() => {
+          input.focus()
+          const length = input.value?.length ?? 0
+          if (typeof input.setSelectionRange === 'function') {
+            input.setSelectionRange(length, length)
+          }
+        })
       })
     })
   }, [commentUiByItem])
@@ -226,12 +255,9 @@ const AssessmentQuestions = ({
                         const isSavingComment =
                           savingCommentItems.has(item.id) ||
                           savingCommentItems.has(String(item.id))
+                        const { commentCount, missingTypes } = getCommentStats(item)
                         const commentUi = getCommentUi(item.id)
                         const isCommentActive = commentUi.open
-                        const selectedCommentValue =
-                          commentUi.type === 'publicComment'
-                            ? item.publicComment || ''
-                            : item.internalComment || ''
                         return (
                           <div
                             key={item.id}
@@ -281,16 +307,25 @@ const AssessmentQuestions = ({
                               <div className="flex items-center gap-2 text-gray-400">
                                 <button
                                   type="button"
-                                  onClick={() => handleCommentIconClick(item.id)}
+                                  onClick={() => handleCommentIconClick(item)}
                                   disabled={isCompleted || isReadOnly}
-                                  className={`h-8 w-8 rounded-md border inline-flex items-center justify-center ${
+                                  className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border ${
                                     isCommentActive
                                       ? 'border-blue-300 bg-blue-50 text-blue-700'
                                       : 'border-gray-200 bg-white hover:text-gray-600'
                                   } disabled:cursor-not-allowed disabled:opacity-60`}
-                                  aria-label="Comments"
+                                  aria-label={
+                                    commentCount > 0
+                                      ? `Comments (${commentCount})`
+                                      : 'Comments'
+                                  }
                                 >
                                   <FiMessageSquare className="mx-auto" />
+                                  {commentCount > 0 ? (
+                                    <span className="absolute -right-1 -top-1 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-semibold leading-none text-white">
+                                      {commentCount}
+                                    </span>
+                                  ) : null}
                                 </button>
                               </div>
                             </div>
@@ -299,204 +334,155 @@ const AssessmentQuestions = ({
                               <div className="border-t border-gray-200 bg-white">
                                 {commentUi.open && (
                                   <div className="border-b border-gray-200 px-4 py-3">
-                                    {commentUi.showTypePicker ? (
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <p className="text-xs font-semibold text-gray-700">
-                                          Select comment type:
-                                        </p>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleCommentTypeSelect(
-                                              item.id,
-                                              'publicComment',
-                                              Boolean((item.publicComment || '').trim())
-                                            )
-                                          }
-                                          className="rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700"
-                                        >
-                                          Public
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleCommentTypeSelect(
-                                              item.id,
-                                              'internalComment',
-                                              Boolean((item.internalComment || '').trim())
-                                            )
-                                          }
-                                          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                                        >
-                                          Internal
-                                        </button>
-                                      </div>
-                                    ) : !commentUi.isEditing &&
-                                      selectedCommentValue.trim().length > 0 ? (
-                                      <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                                        <div className="flex items-start justify-between gap-3">
-                                          <div>
-                                            <p className="text-xs font-semibold text-gray-700">
-                                              {commentUi.type === 'publicComment'
-                                                ? 'Public Comment'
-                                                : 'Internal Comment'}
-                                            </p>
-                                            <p className="mt-1 whitespace-pre-wrap break-words text-sm text-gray-700">
-                                              {selectedCommentValue}
-                                            </p>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                            <button
-                                              type="button"
-                                              onClick={() => handleCommentEdit(item.id)}
-                                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                                              title="Edit comment"
-                                              aria-label="Edit comment"
-                                            >
-                                              <FiEdit2 className="h-3.5 w-3.5" />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={async () => {
-                                                const saved = await handleDeleteComment(
-                                                  item.id,
-                                                  commentUi.type
-                                                )
-                                                if (saved) {
-                                                  setCommentUiByItem((prev) => ({
-                                                    ...prev,
-                                                    [item.id]: {
-                                                      ...(prev[item.id] || {}),
-                                                      open: true,
-                                                      type: null,
-                                                      showTypePicker: true,
-                                                      isEditing: false,
-                                                      forceEditNextSelection: false,
-                                                    },
-                                                  }))
-                                                }
-                                              }}
-                                              disabled={isSavingComment || isCompleted || isReadOnly}
-                                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                              title="Delete comment"
-                                              aria-label="Delete comment"
-                                            >
-                                              <FiTrash2 className="h-3.5 w-3.5" />
-                                            </button>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ) : (
+                                    {(() => {
+                                      const addableTypes = missingTypes.filter(
+                                        (field) => !commentUi.editing?.[field]
+                                      )
+                                      const visibleCommentFields = COMMENT_FIELDS.filter((field) => {
+                                        const value = getSavedCommentValue(item, field)
+                                        return value.trim().length > 0 || Boolean(commentUi.editing?.[field])
+                                      })
+
+                                      return (
+                                        <>
+                                    <div className="flex items-center justify-between gap-3">
                                       <div>
-                                        <label className="mb-1 block text-xs font-semibold text-gray-700">
-                                          {commentUi.type === 'publicComment'
-                                            ? 'Public Comment'
-                                            : 'Internal Comment'}
-                                        </label>
-                                        <textarea
-                                          key={`comment-${item.id}-${commentUi.type}`}
-                                          ref={(node) => {
-                                            const key = `${item.id}:${commentUi.type}`
-                                            if (node) {
-                                              commentInputRefs.current[key] = node
-                                            } else {
-                                              delete commentInputRefs.current[key]
-                                            }
-                                          }}
-                                          value={
-                                            commentUi.type === 'publicComment'
-                                              ? item.publicComment || ''
-                                              : item.internalComment || ''
-                                          }
-                                          onChange={(event) =>
-                                            handleCommentChange(
-                                              item.id,
-                                              commentUi.type,
-                                              event.target.value
-                                            )
-                                          }
-                                          rows={3}
-                                          disabled={isSavingComment || isCompleted || isReadOnly}
-                                          className="w-full rounded-md border border-gray-300 px-2 py-2 text-sm text-gray-700 disabled:cursor-not-allowed disabled:bg-gray-100"
-                                          placeholder={
-                                            commentUi.type === 'publicComment'
-                                              ? 'Add public comment...'
-                                              : 'Add internal comment...'
-                                          }
-                                        />
-                                        <div className="mt-2 flex items-center gap-2">
+                                        <p className="text-sm font-semibold text-gray-900">Comments</p>
+                                      </div>
+                                    </div>
+
+                                    {addableTypes.length > 0 && (
+                                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <span className="text-xs font-medium text-gray-500">Add comment</span>
+                                        {addableTypes.map((field) => (
                                           <button
+                                            key={`add-${item.id}-${field}`}
                                             type="button"
-                                            onClick={() =>
-                                              setCommentUiByItem((prev) => ({
-                                                ...prev,
-                                                [item.id]: {
-                                                  ...(prev[item.id] || {}),
-                                                  type: null,
-                                                  showTypePicker: true,
-                                                  isEditing: false,
-                                                  forceEditNextSelection: true,
-                                                },
-                                              }))
-                                            }
-                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                                            title="Change comment type"
-                                            aria-label="Change comment type"
+                                            onClick={() => handleCommentEdit(item.id, field)}
+                                            disabled={isSavingComment || isCompleted || isReadOnly}
+                                            className="inline-flex h-8 items-center gap-1 rounded-md border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                                           >
-                                            <FiRefreshCw className="h-3.5 w-3.5" />
+                                            <FiPlus className="h-3.5 w-3.5" />
+                                            {getCommentShortLabel(field)}
                                           </button>
-                                          <button
-                                            type="button"
-                                            onClick={async () => {
-                                              const saved = await handleSaveComment(item.id)
-                                              if (saved) {
-                                                setCommentUiByItem((prev) => ({
-                                                  ...prev,
-                                                    [item.id]: {
-                                                      ...(prev[item.id] || {}),
-                                                      open: true,
-                                                      showTypePicker: false,
-                                                      isEditing: false,
-                                                      forceEditNextSelection: false,
-                                                    },
-                                                  }))
-                                                }
-                                            }}
-                                            disabled={
-                                              isSavingComment ||
-                                              isCompleted ||
-                                              isReadOnly ||
-                                              selectedCommentValue.trim().length === 0
-                                            }
-                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                                            title="Save comment"
-                                            aria-label="Save comment"
-                                          >
-                                            <FiCheck className="h-4 w-4" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setCommentUiByItem((prev) => ({
-                                                ...prev,
-                                                [item.id]: {
-                                                  ...(prev[item.id] || {}),
-                                                  open: true,
-                                                  showTypePicker: false,
-                                                  isEditing: false,
-                                                  forceEditNextSelection: false,
-                                                },
-                                              }))
-                                            }}
-                                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                                            title="Cancel editing"
-                                            aria-label="Cancel editing"
-                                          >
-                                            <FiX className="h-4 w-4" />
-                                          </button>
-                                        </div>
+                                        ))}
                                       </div>
                                     )}
+
+                                    {visibleCommentFields.length > 0 ? (
+                                      <div className="mt-3 space-y-2">
+                                        {visibleCommentFields.map((field) => {
+                                          const savedValue = getSavedCommentValue(item, field)
+                                          const draftValue = getDraftCommentValue(item.id, field, savedValue)
+                                          const isEditingField = Boolean(commentUi.editing?.[field])
+
+                                          return (
+                                            <div
+                                              key={`comment-card-${item.id}-${field}`}
+                                              className="rounded-lg border border-gray-200 bg-gray-50 p-2.5"
+                                            >
+                                              <div className="mb-2 flex items-center justify-between gap-2">
+                                                <span className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+                                                  {getCommentLabel(field)}
+                                                </span>
+                                                <div className="flex items-center gap-1">
+                                                  {isEditingField ? (
+                                                    <>
+                                                      <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                          const saved = await handleSaveComment(item.id)
+                                                          if (saved) {
+                                                            handleCommentCancel(item.id, field)
+                                                          }
+                                                        }}
+                                                        disabled={
+                                                          isSavingComment ||
+                                                          isCompleted ||
+                                                          isReadOnly ||
+                                                          draftValue.trim().length === 0
+                                                        }
+                                                        className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                                        aria-label={`Save ${getCommentShortLabel(field)} comment`}
+                                                        title="Save"
+                                                      >
+                                                        <FiCheck className="h-3.5 w-3.5" />
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => handleCommentCancel(item.id, field)}
+                                                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                                        aria-label={`Cancel ${getCommentShortLabel(field)} comment changes`}
+                                                        title="Cancel"
+                                                      >
+                                                        <FiX className="h-3.5 w-3.5" />
+                                                      </button>
+                                                    </>
+                                                  ) : (
+                                                    <>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => handleCommentEdit(item.id, field)}
+                                                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                                        aria-label={`Edit ${getCommentShortLabel(field)} comment`}
+                                                        title="Edit"
+                                                      >
+                                                        <FiEdit2 className="h-3.5 w-3.5" />
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                          await handleDeleteComment(item.id, field)
+                                                        }}
+                                                        disabled={isSavingComment || isCompleted || isReadOnly}
+                                                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                                        aria-label={`Delete ${getCommentShortLabel(field)} comment`}
+                                                        title="Delete"
+                                                      >
+                                                        <FiTrash2 className="h-3.5 w-3.5" />
+                                                      </button>
+                                                    </>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              {isEditingField ? (
+                                                <div>
+                                                  <textarea
+                                                    key={`comment-${item.id}-${field}`}
+                                                    ref={(node) => {
+                                                      const key = `${item.id}:${field}`
+                                                      if (node) {
+                                                        commentInputRefs.current[key] = node
+                                                      } else {
+                                                        delete commentInputRefs.current[key]
+                                                      }
+                                                    }}
+                                                    value={draftValue}
+                                                    onChange={(event) =>
+                                                      handleCommentChange(item.id, field, event.target.value)
+                                                    }
+                                                    rows={3}
+                                                    disabled={isSavingComment || isCompleted || isReadOnly}
+                                                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 disabled:cursor-not-allowed disabled:bg-gray-100"
+                                                    placeholder={getCommentPlaceholder(field)}
+                                                  />
+                                                </div>
+                                              ) : (
+                                                <div>
+                                                  <p className="whitespace-pre-wrap break-words text-sm text-gray-700">
+                                                    {savedValue}
+                                                  </p>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : null}
+                                        </>
+                                      )
+                                    })()}
                                   </div>
                                 )}
 

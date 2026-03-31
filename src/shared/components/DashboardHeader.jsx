@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react'
 import HeaderLogo from '../../assets/HeaderLogo.png'
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom'
+import { FiLogOut } from 'react-icons/fi'
+import { RiAdminLine } from 'react-icons/ri'
 import {
   clearAuthSession,
   clearStoredAuthNotice,
@@ -8,10 +10,10 @@ import {
   hasResolvedAdminAccess,
   refreshCurrentUserSession,
   isCurrentUserAdmin,
-} from '../utils/authSession';
+} from '../utils/authSession'
 
 const DashboardHeader = () => {
-  const navigate = useNavigate();
+  const navigate = useNavigate()
   const hasToken = hasAuthToken()
   const [resolvedAdmin, setResolvedAdmin] = useState(() => (hasToken ? isCurrentUserAdmin() : false))
   const showAdmin = hasToken && resolvedAdmin
@@ -41,82 +43,39 @@ const DashboardHeader = () => {
   }
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-20 w-full bg-[rgb(12,19,34)] text-white border-b border-b-white/10 px-4 py-1 shadow-sm">
-      {/* Mobile-only row */}
-      <div className="flex items-center justify-between md:hidden h-12">
-        <div className="flex items-center gap-1.5">
-          <div className="h-16 w-16">
-            <img
-              src={HeaderLogo}
-              alt="Atlas"
-              className="h-full w-full cursor-pointer object-contain"
-            />
-          </div>
-          <h1
-            onClick={() => navigate('/clients/select')}
-            className="text-lg font-semibold cursor-pointer whitespace-nowrap tracking-wide"
-          >
-            Atlas
-          </h1>
-        </div>
-        {showAdmin ? (
-          <button
-            type="button"
-            onClick={() => navigate('/admin')}
-            className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
-          >
-            Admin
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+    <header className="fixed top-0 left-0 right-0 z-20 w-full border-b border-b-white/10 bg-[rgb(12,19,34)] text-white shadow-sm">
+      <div className="flex h-11 items-center justify-between px-3 md:px-5">
+        <div
+          className="flex cursor-pointer items-center gap-2"
+          onClick={() => navigate('/clients/select')}
         >
-          Logout
-        </button>
-      </div>
-
-      {/* Desktop row (original layout) */}
-      <div className="hidden md:flex justify-between items-center h-12">
-        <div className="flex items-center gap-1.5">
-          <div className="h-9 w-9 shrink-0">
-            <img
-              src={HeaderLogo}
-              alt="Atlas"
-              className="h-full w-full cursor-pointer object-contain"
-            />
-          </div>
-
-          <h1
-            onClick={() => navigate('/clients/select')}
-            className="text-lg font-semibold cursor-pointer whitespace-nowrap tracking-wide"
-          >
-            Atlas
-          </h1>
+          <img src={HeaderLogo} alt="Atlas" className="h-9 w-9 shrink-0 object-contain" />
+          <div className="text-[15px] font-semibold tracking-wide text-white/95">Atlas</div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {showAdmin ? (
             <button
               type="button"
               onClick={() => navigate('/admin')}
-              className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-white/20 px-2 py-1 text-xs font-medium text-white/80 hover:text-white"
             >
+              <RiAdminLine className="h-3.5 w-3.5" />
               Admin
             </button>
           ) : null}
           <button
             type="button"
             onClick={handleLogout}
-            className="text-xs font-medium text-white/80 hover:text-white border border-white/20 rounded px-2 py-1"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-white/20 px-2 py-1 text-xs font-medium text-white/80 hover:text-white"
           >
+            <FiLogOut className="h-3.5 w-3.5" />
             Logout
           </button>
         </div>
       </div>
-    </div>
-  );
-};
+    </header>
+  )
+}
 
-export default DashboardHeader;
+export default DashboardHeader

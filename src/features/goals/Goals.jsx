@@ -698,7 +698,10 @@ const Goals = () => {
         return
       }
       navigate(`/assessments/${item.assessmentId}/read-only`, {
-        state: { responseId: item.responseId, backTo: '/goals' },
+        state: {
+          responseId: item.responseId || item.subcategoryId || item.id || null,
+          backTo: `/assessments/${item.assessmentId}`,
+        },
       })
     },
     [navigate]
@@ -1337,8 +1340,9 @@ const Goals = () => {
 
             {isExpanded && (
               <div className="border-t border-gray-200 px-6 py-6">
-                <div className="overflow-visible rounded-lg border border-gray-200 bg-white">
-                  <table className="w-full table-fixed text-left text-sm">
+                <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-[960px] w-full table-fixed text-left text-sm">
                     <thead className="bg-white">
                       <tr className="[&>th]:px-4 [&>th]:py-3 [&>th]:font-semibold [&>th]:text-gray-900 [&>th]:whitespace-nowrap border-b border-gray-200">
                         <th className="w-[40%]">Initiative</th>
@@ -1511,7 +1515,8 @@ const Goals = () => {
                         })
                       )}
                     </tbody>
-                  </table>
+                    </table>
+                  </div>
                 </div>
 
                 <div className="mt-5">
@@ -1772,7 +1777,7 @@ const Goals = () => {
                           </button>
                         )}
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <AppSelect
                           options={yearOptions.map((year) => ({
                             value: year,

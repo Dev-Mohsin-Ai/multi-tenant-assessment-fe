@@ -43,7 +43,7 @@ const ClientSelectPage = () => {
 
   return (
     <div className="min-h-screen bg-[rgb(248,248,250)]">
-      <div className="mx-auto w-full max-w-full px-10 pt-16 pb-12">
+      <div className="mx-auto w-full max-w-full px-4 pb-12 pt-16 sm:px-6 md:px-8 lg:px-10">
         <div className="mb-6 rounded-md border border-gray-200 bg-white px-6 py-5 shadow-sm">
           <h1 className="text-2xl font-semibold text-gray-900">Select client</h1>
           <p className="mt-1 text-sm text-gray-600">

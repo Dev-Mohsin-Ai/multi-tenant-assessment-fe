@@ -511,7 +511,7 @@ const AdminPage = () => {
                   ) : filteredOrganizations.length === 0 ? (
                     <div className="px-4 py-4 text-sm text-gray-500">No clients found.</div>
                   ) : (
-                    <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <table className="min-w-[420px] w-full divide-y divide-gray-200 text-sm">
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-4 py-2 text-left font-semibold text-gray-700">Client</th>
@@ -648,7 +648,7 @@ const AdminPage = () => {
                   </div>
                 </div>
 
-                <div className="max-h-130 overflow-y-auto overflow-x-hidden">
+                <div className="max-h-130 overflow-auto">
                   {!selectedOrganization ? (
                     <div className="px-4 py-5 text-sm text-gray-500">
                       Select a client to view members.
@@ -662,7 +662,7 @@ const AdminPage = () => {
                   ) : filteredMembers.length === 0 ? (
                     <div className="px-4 py-5 text-sm text-gray-500">No users found for this client.</div>
                   ) : (
-                    <table className="w-full table-fixed divide-y divide-gray-200 text-sm">
+                    <table className="min-w-[760px] w-full table-fixed divide-y divide-gray-200 text-sm">
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-3 py-2 text-left font-semibold text-gray-700 w-[21%]">Name</th>

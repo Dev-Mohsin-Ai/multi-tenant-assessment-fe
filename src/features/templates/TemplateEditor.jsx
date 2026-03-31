@@ -20,7 +20,7 @@ const TemplateEditor = (props) => {
     autoSaveStatus,
     deleting,
     handleSave,
-    handleDeleteConfirm,
+    handleDeleteRequest,
     totalCategoryWeight,
     addCategory,
     updateCategory,
@@ -84,7 +84,7 @@ const TemplateEditor = (props) => {
             {selectedTemplateId && (
               <button
                 type="button"
-                onClick={handleDeleteConfirm}
+                onClick={handleDeleteRequest}
                 disabled={deleting}
                 className="h-9 px-5 rounded-md bg-white border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2"
               >

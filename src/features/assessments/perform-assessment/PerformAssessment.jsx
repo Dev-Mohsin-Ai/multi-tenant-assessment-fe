@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { FiAlertTriangle, FiArrowLeft, FiDownload, FiMessageSquare } from 'react-icons/fi'
+import {
+  FiAlertTriangle,
+  FiArrowLeft,
+  FiDownload,
+  FiMessageCircle,
+  FiMessageSquare,
+} from 'react-icons/fi'
 import {
   completeAssessment,
   deleteAssessment,
@@ -60,6 +67,7 @@ const toArray = (value) => {
 }
 
 const cleanText = (value) => String(value ?? '').trim()
+const COMMENT_TOOLTIP_MAX_WIDTH = 320
 
 const normalizeResponseOrderKey = (value) =>
   String(value || '')
@@ -322,6 +330,107 @@ const saveLinksForAssessment = (assessmentId, nextLinks) => {
   }
 }
 
+const CompletedCommentIcon = ({ comment, kind }) => {
+  const triggerRef = useRef(null)
+  const [isOpen, setIsOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0, width: COMMENT_TOOLTIP_MAX_WIDTH })
+
+  const trimmedComment = String(comment || '').trim()
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current || typeof window === 'undefined') {
+      return
+    }
+
+    const rect = triggerRef.current.getBoundingClientRect()
+    const width = Math.min(COMMENT_TOOLTIP_MAX_WIDTH, Math.max(180, window.innerWidth - 24))
+    const centeredLeft = rect.left + rect.width / 2
+    const minLeft = width / 2 + 12
+    const maxLeft = window.innerWidth - width / 2 - 12
+    const left = Math.min(Math.max(centeredLeft, minLeft), maxLeft)
+    const estimatedHeight = Math.min(220, Math.max(56, Math.ceil(trimmedComment.length / 42) * 18 + 22))
+
+    let top = rect.bottom + 10
+    if (top + estimatedHeight > window.innerHeight - 12) {
+      top = Math.max(12, rect.top - estimatedHeight - 10)
+    }
+
+    setPosition({ top, left, width })
+  }, [trimmedComment])
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    updatePosition()
+
+    const handleViewportChange = () => updatePosition()
+    window.addEventListener('scroll', handleViewportChange, true)
+    window.addEventListener('resize', handleViewportChange)
+
+    return () => {
+      window.removeEventListener('scroll', handleViewportChange, true)
+      window.removeEventListener('resize', handleViewportChange)
+    }
+  }, [isOpen, updatePosition])
+
+  if (!trimmedComment) {
+    return (
+      <div className="flex min-h-11 items-center justify-center text-xs text-gray-300">
+        -
+      </div>
+    )
+  }
+
+  const toneClasses =
+    kind === 'public'
+      ? 'border-blue-200 bg-blue-50 text-blue-700'
+      : 'border-slate-200 bg-slate-50 text-slate-700'
+  const label = kind === 'public' ? 'Public comment' : 'Internal comment'
+  const Icon = kind === 'public' ? FiMessageCircle : FiMessageSquare
+
+  return (
+    <div className="flex min-h-11 items-center justify-center">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={label}
+        onMouseEnter={() => {
+          updatePosition()
+          setIsOpen(true)
+        }}
+        onMouseLeave={() => setIsOpen(false)}
+        onFocus={() => {
+          updatePosition()
+          setIsOpen(true)
+        }}
+        onBlur={() => setIsOpen(false)}
+        className={`inline-flex h-8 w-8 items-center justify-center rounded-md border ${toneClasses}`}
+      >
+        <Icon className="text-sm" />
+      </button>
+      {isOpen && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className="pointer-events-none fixed z-[9999] rounded-md border border-gray-200 bg-white px-3 py-2 text-left text-[10.5px] font-medium leading-4 text-gray-700 shadow-xl"
+              style={{
+                top: `${position.top}px`,
+                left: `${position.left}px`,
+                width: 'max-content',
+                maxWidth: `${position.width}px`,
+                transform: 'translateX(-50%)',
+              }}
+            >
+              <p className="whitespace-pre-wrap break-words">{trimmedComment}</p>
+            </div>,
+            document.body
+          )
+        : null}
+    </div>
+  )
+}
+
 const PerformAssessment = ({
   onBack,
   assessmentId,
@@ -388,6 +497,23 @@ const PerformAssessment = ({
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [initiativePicker.isOpen])
+
+  useEffect(() => {
+    if (!isDeleteDialogOpen) {
+      return
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && !isDeleting) {
+        setIsDeleteDialogOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isDeleteDialogOpen, isDeleting])
 
   useEffect(() => {
     let isMounted = true
@@ -784,6 +910,54 @@ const PerformAssessment = ({
     return !hasErrors
   }, [assessmentId, isCompleted, readOnly])
 
+  const applyCommentPatchToAssessment = useCallback((subcategoryId, commentPatch) => {
+    setAssessment((prev) => {
+      if (!prev || !commentPatch || typeof commentPatch !== 'object') {
+        return prev
+      }
+      return {
+        ...prev,
+        categories: prev.categories.map((category) => ({
+          ...category,
+          subcategories: category.subcategories.map((subcategory) => {
+            if (String(subcategory.id) !== String(subcategoryId)) {
+              return subcategory
+            }
+            return {
+              ...subcategory,
+              ...(Object.prototype.hasOwnProperty.call(commentPatch, 'publicComment')
+                ? { publicComment: commentPatch.publicComment || '' }
+                : {}),
+              ...(Object.prototype.hasOwnProperty.call(commentPatch, 'internalComment')
+                ? { internalComment: commentPatch.internalComment || '' }
+                : {}),
+            }
+          }),
+        })),
+      }
+    })
+  }, [])
+
+  const handleResetCommentDraft = useCallback((subcategoryId, field) => {
+    if (!subcategoryId || !field) {
+      return
+    }
+    setPendingComments((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, subcategoryId)) {
+        return prev
+      }
+      const next = { ...prev }
+      const existing = { ...(next[subcategoryId] || {}) }
+      delete existing[field]
+      if (Object.keys(existing).length === 0) {
+        delete next[subcategoryId]
+      } else {
+        next[subcategoryId] = existing
+      }
+      return next
+    })
+  }, [])
+
   const flushPendingComments = useCallback(async () => {
     if (!assessmentId || readOnly || isCompleted) {
       return true
@@ -825,6 +999,7 @@ const PerformAssessment = ({
           internalComment: commentPayload.internalComment,
           publicComment: commentPayload.publicComment,
         })
+        applyCommentPatchToAssessment(subcategoryId, commentPayload)
         delete pendingSnapshot[subcategoryId]
         setPendingComments((prev) => {
           if (!Object.prototype.hasOwnProperty.call(prev, subcategoryId)) {
@@ -858,7 +1033,7 @@ const PerformAssessment = ({
     pendingCommentsRef.current = pendingSnapshot
     isFlushingCommentsRef.current = false
     return !hasErrors
-  }, [assessmentId, isCompleted, readOnly])
+  }, [applyCommentPatchToAssessment, assessmentId, isCompleted, readOnly])
 
   useEffect(() => {
     if (!assessmentId || readOnly || isCompleted) {
@@ -894,27 +1069,6 @@ const PerformAssessment = ({
     if (isCompleted || readOnly || isCompleting) {
       return
     }
-
-    setAssessment((prev) => {
-      if (!prev) {
-        return prev
-      }
-      return {
-        ...prev,
-        categories: prev.categories.map((category) => ({
-          ...category,
-          subcategories: category.subcategories.map((subcategory) => {
-            if (String(subcategory.id) !== String(subcategoryId)) {
-              return subcategory
-            }
-            if (field === 'publicComment') {
-              return { ...subcategory, publicComment: value }
-            }
-            return { ...subcategory, internalComment: value }
-          }),
-        })),
-      }
-    })
 
     if (!assessmentId) {
       return
@@ -957,6 +1111,8 @@ const PerformAssessment = ({
           publicComment: pendingForSubcategory.publicComment,
         })
 
+        applyCommentPatchToAssessment(subcategoryId, pendingForSubcategory)
+
         setPendingComments((prev) => {
           if (!Object.prototype.hasOwnProperty.call(prev, subcategoryId)) {
             return prev
@@ -982,7 +1138,7 @@ const PerformAssessment = ({
         })
       }
     },
-    [assessmentId, isCompleted, readOnly]
+    [applyCommentPatchToAssessment, assessmentId, isCompleted, readOnly]
   )
 
   const handleDeleteComment = useCallback(
@@ -994,26 +1150,7 @@ const PerformAssessment = ({
         return false
       }
 
-      setAssessment((prev) => {
-        if (!prev) {
-          return prev
-        }
-        return {
-          ...prev,
-          categories: prev.categories.map((category) => ({
-            ...category,
-            subcategories: category.subcategories.map((subcategory) => {
-              if (String(subcategory.id) !== String(subcategoryId)) {
-                return subcategory
-              }
-              if (field === 'publicComment') {
-                return { ...subcategory, publicComment: '' }
-              }
-              return { ...subcategory, internalComment: '' }
-            }),
-          })),
-        }
-      })
+      applyCommentPatchToAssessment(subcategoryId, { [field]: '' })
 
       setPendingComments((prev) => {
         const next = { ...prev }
@@ -1076,7 +1213,7 @@ const PerformAssessment = ({
         })
       }
     },
-    [assessmentId, isCompleted, isCompleting, readOnly]
+    [applyCommentPatchToAssessment, assessmentId, isCompleted, isCompleting, readOnly]
   )
 
   const handleComplete = async () => {
@@ -1922,32 +2059,10 @@ const PerformAssessment = ({
                 })()}
               </td>
               <td className="px-4 py-4 align-middle text-center">
-                {(() => {
-                  const hasPublicComment = Boolean((item.publicComment || '').trim())
-                  const hasInternalComment = Boolean((item.internalComment || '').trim())
-                  const commentTypeLabel = hasPublicComment && hasInternalComment
-                    ? 'Public + Internal'
-                    : hasPublicComment
-                    ? 'Public'
-                    : hasInternalComment
-                    ? 'Internal'
-                    : 'No comments'
-                  return (
-                    <div className="flex min-h-11 items-center justify-center">
-                      <div className="group relative inline-flex">
-                        <span
-                          aria-label={`Comments: ${commentTypeLabel}`}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500"
-                        >
-                          <FiMessageSquare className="text-sm" />
-                        </span>
-                        <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-max -translate-x-1/2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
-                          {commentTypeLabel}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })()}
+                <CompletedCommentIcon comment={item.publicComment} kind="public" />
+              </td>
+              <td className="px-4 py-4 align-middle text-center">
+                <CompletedCommentIcon comment={item.internalComment} kind="internal" />
               </td>
             </tr>
           )}
@@ -1955,6 +2070,7 @@ const PerformAssessment = ({
       ) : (
         <AssessmentQuestions
           categories={categories}
+          pendingComments={pendingComments}
           expandedSections={expandedSections}
           expandedItems={expandedItems}
           toggleSection={toggleSection}
@@ -1966,6 +2082,7 @@ const PerformAssessment = ({
           selections={selections}
           handleSelect={handleSelect}
           handleCommentChange={handleCommentChange}
+          handleResetCommentDraft={handleResetCommentDraft}
           handleSaveComment={handleSaveComment}
           handleDeleteComment={handleDeleteComment}
           savingItems={savingItems}

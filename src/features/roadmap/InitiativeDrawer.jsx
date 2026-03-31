@@ -26,6 +26,7 @@ import { getGoals } from '../../shared/services/goalService'
 import { getOrganizationUsers } from '../../shared/services/organizationService'
 import {
   applyInitiativeTemplate,
+  deleteInitiativeTemplate,
   getInitiativeById,
   getLinkedSubcategories,
   getInitiativeTemplateById,
@@ -38,6 +39,7 @@ import { useAppStore } from '../../shared/store/useAppStore'
 import ToastMessage from '../../shared/components/ToastMessage'
 import AppSelect from '../../shared/components/AppSelect'
 import { INITIATIVE_LINKS_STORAGE_KEY } from '../../shared/utils/initiativeLinks'
+import { formatApiError } from '../../shared/utils/apiErrors'
 import {
   cleanLinkedText,
   getLinkedItemKey,
@@ -174,6 +176,18 @@ const writeInitiativeTemplateMap = (value) => {
   } catch {
     // ignore
   }
+}
+
+const removeTemplateFromStoredTemplateMap = (templateId) => {
+  if (!templateId) {
+    return
+  }
+
+  const templateMap = readInitiativeTemplateMap()
+  const nextEntries = Object.entries(templateMap).filter(
+    ([, value]) => String(value?.templateId ?? '') !== String(templateId)
+  )
+  writeInitiativeTemplateMap(Object.fromEntries(nextEntries))
 }
 
 const normalizeOrganizationContacts = (contactsData) =>
@@ -412,6 +426,8 @@ const InitiativeDrawer = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState(null)
   const [applyingTemplate, setApplyingTemplate] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
+  const [deletingTemplateId, setDeletingTemplateId] = useState(null)
+  const [pendingTemplateDelete, setPendingTemplateDelete] = useState(null)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
   const [toast, setToast] = useState(null)
   const [showGoalInitiativeLinks] = useState(false)
@@ -549,16 +565,25 @@ const InitiativeDrawer = ({
     }
 
     const handleEscapeKey = (event) => {
-      if (event.key === 'Escape') {
-        onClose()
+      if (event.key !== 'Escape') {
+        return
       }
+
+      if (templateDialogOpen) {
+        event.preventDefault()
+        handleCloseTemplateDialog()
+        return
+      }
+
+      event.preventDefault()
+      onClose()
     }
 
     window.addEventListener('keydown', handleEscapeKey)
     return () => {
       window.removeEventListener('keydown', handleEscapeKey)
     }
-  }, [onClose, open])
+  }, [onClose, open, templateDialogOpen])
 
   useEffect(() => {
     if (!open) {
@@ -872,7 +897,7 @@ const InitiativeDrawer = ({
     navigate(`/assessments/${item.assessmentId}/read-only`, {
       state: {
         responseId: targetResponseId,
-        backTo: '/goals',
+        backTo: `/assessments/${item.assessmentId}`,
       },
     })
   }
@@ -904,6 +929,7 @@ const InitiativeDrawer = ({
     setTemplateDialogOpen(false)
     setTemplateError('')
     setTemplateSearch('')
+    setPendingTemplateDelete(null)
   }
 
   const handleSaveAsTemplate = async () => {
@@ -1053,6 +1079,73 @@ const InitiativeDrawer = ({
     }
   }
 
+  const handleRequestDeleteTemplate = (template) => {
+    const templateId = resolveTemplateId(template)
+    const templateTitle = resolveTemplateTitle(template) || `Template ${templateId}`
+
+    if (!templateId || !isNumericLike(templateId)) {
+      setTemplateError('Selected template could not be deleted.')
+      return
+    }
+
+    setPendingTemplateDelete({
+      id: String(templateId),
+      title: templateTitle,
+    })
+    setTemplateError('')
+  }
+
+  const handleDeleteTemplate = async () => {
+    if (!pendingTemplateDelete?.id || !isNumericLike(pendingTemplateDelete.id)) {
+      setTemplateError('Selected template could not be deleted.')
+      return
+    }
+
+    const templateId = pendingTemplateDelete.id
+    const templateTitle = pendingTemplateDelete.title || `Template ${templateId}`
+
+    setDeletingTemplateId(String(templateId))
+    setTemplateError('')
+
+    try {
+      const payload = await deleteInitiativeTemplate(Number(templateId))
+      setTemplateOptions((prev) =>
+        prev.filter((item) => String(resolveTemplateId(item)) !== String(templateId))
+      )
+
+      if (String(selectedTemplateId || '') === String(templateId)) {
+        setSelectedTemplateId(null)
+      }
+
+      removeTemplateFromStoredTemplateMap(templateId)
+      setPendingTemplateDelete(null)
+
+      setForm((prev) =>
+        String(prev.templateId || '') === String(templateId)
+          ? {
+              ...prev,
+              templateId: null,
+              templateTitle: '',
+            }
+          : prev
+      )
+
+      const message =
+        (typeof payload === 'string' && payload) ||
+        payload?.message ||
+        `Template "${templateTitle}" deleted.`
+
+      setToast({
+        type: 'success',
+        message,
+      })
+    } catch (error) {
+      setTemplateError(formatApiError(error, 'Unable to delete template'))
+    } finally {
+      setDeletingTemplateId(null)
+    }
+  }
+
   const handleSubmit = (event) => {
     event.preventDefault()
     if (!form.title.trim()) {
@@ -1118,7 +1211,7 @@ const InitiativeDrawer = ({
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex justify-end bg-black/40">
+    <div className="fixed inset-x-0 bottom-0 top-11 z-50 flex justify-end bg-black/40">
       <form
         className="flex h-full w-full max-w-2xl flex-col bg-white shadow-xl"
         onSubmit={handleSubmit}
@@ -1240,7 +1333,7 @@ const InitiativeDrawer = ({
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <AppSelect
                           options={yearOptions.map((year) => ({
                             value: year,
@@ -1779,6 +1872,35 @@ const InitiativeDrawer = ({
                   </div>
                 )}
 
+                {pendingTemplateDelete ? (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3">
+                    <div className="text-sm font-semibold text-red-700">
+                      Delete "{pendingTemplateDelete.title}"?
+                    </div>
+                    <div className="mt-1 text-xs text-red-600">
+                      This saved template will be removed from the template library.
+                    </div>
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPendingTemplateDelete(null)}
+                        disabled={Boolean(deletingTemplateId)}
+                        className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteTemplate}
+                        disabled={Boolean(deletingTemplateId)}
+                        className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {deletingTemplateId ? 'Deleting...' : 'Delete template'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
                 <input
                   type="text"
                   value={templateSearch}
@@ -1804,31 +1926,50 @@ const InitiativeDrawer = ({
                         const description = resolveTemplateSummary(template)
                         const isSelected =
                           String(selectedTemplateId || '') === String(templateId || '')
+                        const isDeleting = String(deletingTemplateId || '') === String(templateId)
                         return (
-                          <button
+                          <div
                             key={String(templateId)}
-                            type="button"
-                            onClick={() => setSelectedTemplateId(templateId)}
-                            className={`w-full px-3 py-2 text-left border-l-2 transition-colors ${
+                            className={`border-l-2 transition-colors ${
                               isSelected
                                 ? 'border-l-[rgb(5,117,204)] bg-[rgb(236,245,255)]'
                                 : 'border-l-transparent bg-white hover:bg-gray-50'
                             }`}
-                            aria-pressed={isSelected}
                           >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="text-sm font-semibold text-gray-900">{title}</div>
-                              {isSelected ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(5,117,204)]/10 px-2 py-0.5 text-[11px] font-semibold text-[rgb(5,117,204)]">
-                                  <FiCheck className="h-3 w-3" />
-                                  Selected
-                                </span>
-                              ) : null}
+                            <div className="flex items-center gap-3 px-3 py-2">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedTemplateId(templateId)}
+                                className="min-w-0 flex-1 text-left"
+                                aria-pressed={isSelected}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="text-sm font-semibold text-gray-900">{title}</div>
+                                  {isSelected ? (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-[rgb(5,117,204)]/10 px-2 py-0.5 text-[11px] font-semibold text-[rgb(5,117,204)]">
+                                      <FiCheck className="h-3 w-3" />
+                                      Selected
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {description ? (
+                                  <div className="mt-1 text-xs text-gray-500">{description}</div>
+                                ) : null}
+                              </button>
+                              <div className="flex h-full shrink-0 items-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRequestDeleteTemplate(template)}
+                                disabled={isDeleting || applyingTemplate}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label={`Delete ${title}`}
+                                  title="Delete template"
+                                >
+                                  <FiTrash2 className="h-4 w-4" />
+                                </button>
+                              </div>
                             </div>
-                            {description ? (
-                              <div className="mt-1 text-xs text-gray-500">{description}</div>
-                            ) : null}
-                          </button>
+                          </div>
                         )
                       })}
                     </div>

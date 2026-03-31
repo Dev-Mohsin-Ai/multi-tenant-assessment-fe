@@ -51,19 +51,21 @@ const CompletedSummary = ({
               </span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] table-fixed text-sm">
+              <table className="w-full min-w-[1120px] table-fixed text-sm">
                 <colgroup>
-                  <col className="w-[38%]" />
-                  <col className="w-[24%]" />
+                  <col className="w-[32%]" />
+                  <col className="w-[20%]" />
                   <col className="w-[22%]" />
-                  <col className="w-[16%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[13%]" />
                 </colgroup>
                 <thead>
                   <tr className="text-left text-xs text-gray-600 border-b border-gray-200">
                     <th className="px-4 py-3 align-middle font-semibold">Title &amp; Description</th>
                     <th className="px-4 py-3 align-middle font-semibold">Response</th>
                     <th className="px-4 py-3 text-center align-middle font-semibold">Initiative</th>
-                    <th className="px-4 py-3 text-center align-middle font-semibold">Comments</th>
+                    <th className="px-4 py-3 text-center align-middle font-semibold">Public Comments</th>
+                    <th className="px-4 py-3 text-center align-middle font-semibold">Internal Comments</th>
                   </tr>
                 </thead>
                 <tbody>

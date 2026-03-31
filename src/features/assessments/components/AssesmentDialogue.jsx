@@ -286,8 +286,8 @@ const AssesmentDialogue = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40">
-      <div className="mt-24 bg-white w-1/3 max-w-[90vw] rounded-lg p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 sm:p-6">
+      <div className="mt-6 max-h-[calc(100vh-3rem)] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:mt-16 sm:p-6">
         <div className="flex items-center justify-between">
           <h1 className="text-[rgb(5,117,204)] text-2xl font-semibold">
             New Assessment
@@ -325,7 +325,7 @@ const AssesmentDialogue = ({
                     isLoading={loadingOrganizations}
                   />
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <input
                     type="text"
                     value={orgName}
@@ -372,7 +372,7 @@ const AssesmentDialogue = ({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <h2 className="font-medium text-black">Performed by</h2>
               <div className="mt-2">
@@ -412,11 +412,11 @@ const AssesmentDialogue = ({
           </div>
         </div>
 
-        <div className="mt-6 flex items-center justify-between">
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-2 cursor-pointer border border-gray-300 rounded-md px-3 h-9"
+            className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-gray-300 px-3 text-sm text-gray-600 hover:text-gray-900 sm:w-auto"
           >
             <span className="inline-flex items-center justify-center text-gray-600">
               x
@@ -427,7 +427,7 @@ const AssesmentDialogue = ({
             type="button"
             onClick={handleNext}
             disabled={loadingTemplates || !templatesAvailable}
-            className="h-9 px-4 rounded-md bg-[rgb(5,117,204)] text-white text-sm font-medium hover:bg-[rgb(0,97,170)] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            className="h-9 w-full rounded-md bg-[rgb(5,117,204)] px-4 text-sm font-medium text-white hover:bg-[rgb(0,97,170)] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             Next
           </button>

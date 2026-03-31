@@ -37,7 +37,7 @@ const SideTopbar = ({
     const content = children ?? activeItem?.content ?? null
 
     return (
-        <div className="fixed left-0 right-0 top-[3.75rem] bottom-0 bg-white rounded-tl-xl flex flex-col overflow-auto">
+        <div className="fixed bottom-0 left-0 right-0 top-11 flex flex-col overflow-auto bg-white">
             <TopBar activeLabel={label} clientName={clientName} />
 
             <div className="flex flex-1 min-h-0">
@@ -50,7 +50,7 @@ const SideTopbar = ({
                 </div>
 
                 <main
-                    className={`flex-1 px-4 md:px-7 pt-6 md:pt-7 overflow-auto rounded-tl-lg bg-[rgb(243,243,247)] ${contentClassName}`.trim()}
+                    className={`flex-1 overflow-auto bg-[rgb(243,243,247)] px-4 pt-6 md:px-7 md:pt-7 ${contentClassName}`.trim()}
                 >
                     <div className="flex md:hidden items-center gap-2 pb-3 border-b border-gray-200 mb-4 overflow-x-auto">
                         {resolvedItems.map((item) => (

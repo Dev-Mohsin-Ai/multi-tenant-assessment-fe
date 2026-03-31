@@ -780,7 +780,10 @@ const Roadmap = () => {
 
   const handleLinkedAssessmentClick = (item) => {
     navigate(`/assessments/${item.assessmentId}/read-only`, {
-      state: { responseId: item.responseId, backTo: '/roadmap' },
+      state: {
+        responseId: item.responseId || item.subcategoryId || item.id || null,
+        backTo: `/assessments/${item.assessmentId}`,
+      },
     })
   }
 

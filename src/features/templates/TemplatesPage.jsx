@@ -92,6 +92,23 @@ const TemplatesPage = () => {
     setCollapsedSubcategories({})
   }, [activeOrganizationId])
 
+  useEffect(() => {
+    if (!templatePendingDelete) {
+      return
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && !deleting) {
+        setTemplatePendingDelete(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [deleting, templatePendingDelete])
+
   const handleSelectTemplate = (template) => {
     const normalized = normalizeTemplate(template)
     setSelectedTemplateId(resolveTemplateId(template))
@@ -527,6 +544,28 @@ const TemplatesPage = () => {
     }
   }
 
+  const handleDeleteRequest = (template = null) => {
+    const resolvedId = resolveTemplateId(template) ?? selectedTemplateId
+    if (!resolvedId) {
+      setError('Select a template to delete.')
+      return
+    }
+
+    const fallbackTemplate = templates.find(
+      (item) => String(resolveTemplateId(item)) === String(resolvedId)
+    )
+
+    setTemplatePendingDelete({
+      id: resolvedId,
+      title:
+        template?.title ||
+        fallbackTemplate?.title ||
+        formData.title ||
+        `Template ${resolvedId}`,
+    })
+    setError('')
+  }
+
   const filteredTemplates = templates.filter((template) =>
     template.title?.toLowerCase().includes(searchQuery.toLowerCase())
   )
@@ -572,7 +611,7 @@ const TemplatesPage = () => {
               onSearchChange={setSearchQuery}
               onSelectTemplate={handleSelectTemplate}
               onNewTemplate={handleNewTemplate}
-              onDeleteTemplate={setTemplatePendingDelete}
+              onDeleteTemplate={handleDeleteRequest}
               deletingTemplateId={deleting ? templatePendingDelete?.id : null}
             />
           ) : (
@@ -584,7 +623,7 @@ const TemplatesPage = () => {
               autoSaveStatus={autoSaveStatus}
               deleting={deleting}
               handleSave={handleSave}
-              handleDeleteConfirm={handleDeleteConfirm}
+              handleDeleteRequest={handleDeleteRequest}
               totalCategoryWeight={totalCategoryWeight}
               addCategory={addCategory}
               updateCategory={updateCategory}

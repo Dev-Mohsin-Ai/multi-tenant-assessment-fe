@@ -68,7 +68,7 @@ export const clearAuthSession = () => {
 
 export const storeSessionExpiredNotice = () => {
   try {
-    sessionStorage.setItem(AUTH_NOTICE_KEY, 'session_expired')
+    sessionStorage.removeItem(AUTH_NOTICE_KEY)
   } catch {
     // ignore storage failures
   }
@@ -84,15 +84,7 @@ export const clearStoredAuthNotice = () => {
 
 export const consumeStoredAuthNotice = () => {
   try {
-    const notice = sessionStorage.getItem(AUTH_NOTICE_KEY)
     sessionStorage.removeItem(AUTH_NOTICE_KEY)
-
-    if (notice === 'session_expired') {
-      return {
-        type: 'info',
-        message: 'You were logged out because your session expired after 30 minutes. Please sign in again.',
-      }
-    }
   } catch {
     // ignore storage failures
   }
