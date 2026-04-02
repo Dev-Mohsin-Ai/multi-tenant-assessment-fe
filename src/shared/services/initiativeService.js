@@ -65,6 +65,11 @@ export const getInitiativeTemplateById = async (templateId) => {
   return response.data
 }
 
+export const updateInitiativeTemplate = async (templateId, payload) => {
+  const response = await api.put(`/initiatives/templates/${templateId}`, payload)
+  return response.data
+}
+
 export const deleteInitiativeTemplate = async (templateId) => {
   const response = await api.delete(`/initiatives/templates/${templateId}`)
   return response.data

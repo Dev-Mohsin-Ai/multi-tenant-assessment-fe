@@ -2,6 +2,15 @@ export const UNSCHEDULED_PLACEMENTS_KEY = 'unscheduledPlacements'
 export const NOT_SCHEDULED_LABEL = 'Not Scheduled'
 const DEFAULT_QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4']
 
+export const buildInitiativeYears = (currentYear = new Date().getFullYear(), options = {}) => {
+  const pastYears = Math.max(Number(options.pastYears ?? 1) || 0, 0)
+  const futureYears = Math.max(Number(options.futureYears ?? 5) || 0, 0)
+  const startYear = Number(currentYear) - pastYears
+  const totalYears = pastYears + futureYears + 1
+
+  return Array.from({ length: totalYears }, (_, index) => startYear + index)
+}
+
 export const buildScheduleOptions = (years = [], quarters = DEFAULT_QUARTERS) =>
   (Array.isArray(years) ? years : []).flatMap((year) =>
     (Array.isArray(quarters) ? quarters : []).map((quarter) => `${quarter}, ${year}`)

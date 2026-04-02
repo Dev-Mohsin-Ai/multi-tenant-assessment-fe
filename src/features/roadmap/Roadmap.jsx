@@ -40,6 +40,7 @@ import { hasMeaningfulLinkedItems } from '../../shared/utils/linkedAssessments'
 import { formatApiError, isGoalNotFoundError } from '../../shared/utils/apiErrors'
 import {
   applyPlacementOverride,
+  buildInitiativeYears,
   buildPlacementStorageKey,
   isQuarterSlotKey,
   readPlacementOverrides,
@@ -66,11 +67,7 @@ const Roadmap = () => {
   const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const currentYear = new Date().getFullYear()
   const currentQuarter = `Q${Math.floor(new Date().getMonth() / 3) + 1}`
-  const currentQuarterIndex = Math.max(0, QUARTERS.indexOf(currentQuarter))
-  const years = useMemo(
-    () => Array.from({ length: 5 }, (_, index) => currentYear + index),
-    [currentYear]
-  )
+  const years = useMemo(() => buildInitiativeYears(currentYear), [currentYear])
 
   const shiftQuarter = (start, delta) => {
     const quarterCount = QUARTERS.length
@@ -92,7 +89,7 @@ const Roadmap = () => {
 
   const [windowStart, setWindowStart] = useState(() => ({
     year: currentYear,
-    quarterIndex: currentQuarterIndex,
+    quarterIndex: 0,
   }))
 
   const windowSlots = useMemo(() => {
@@ -488,7 +485,7 @@ const Roadmap = () => {
   }
 
   const handleCurrentQuarter = () => {
-    setWindowStart({ year: currentYear, quarterIndex: currentQuarterIndex })
+    setWindowStart({ year: currentYear, quarterIndex: 0 })
   }
 
   const handleOpenCreate = () => {
@@ -611,11 +608,12 @@ const Roadmap = () => {
     })
   }
 
-  const handleSaveInitiative = async (payload) => {
+  const handleSaveInitiative = async (payload, options = {}) => {
+    const closeOnSuccess = options.closeOnSuccess !== false
     const organizationId = Number(activeOrganizationId)
     if (!organizationId) {
       setLoadError('Select a client before creating initiatives.')
-      return
+      return null
     }
     if (drawerState.mode === 'edit' && drawerState.initiative) {
       try {
@@ -694,11 +692,23 @@ const Roadmap = () => {
           })
         )
 
-        handleCloseDrawer()
+        if (closeOnSuccess) {
+          handleCloseDrawer()
+        } else {
+          setDrawerState((prev) => ({
+            ...prev,
+            open: true,
+            mode: 'edit',
+            initiative: normalizedMapped,
+            presetYear: null,
+            presetQuarter: null,
+          }))
+        }
+        return normalizedMapped
       } catch (error) {
         setLoadError(formatApiError(error, 'Unable to update initiative'))
+        throw error
       }
-      return
     }
 
     try {
@@ -760,9 +770,21 @@ const Roadmap = () => {
         }
       }
       setInitiatives((prev) => [mapped, ...prev])
-      handleCloseDrawer()
+      if (closeOnSuccess) {
+        handleCloseDrawer()
+      } else {
+        setDrawerState({
+          open: true,
+          mode: 'edit',
+          initiative: mapped,
+          presetYear: null,
+          presetQuarter: null,
+        })
+      }
+      return mapped
     } catch (error) {
       setLoadError(formatApiError(error, 'Unable to create initiative'))
+      throw error
     }
   }
 
@@ -1565,8 +1587,11 @@ const Roadmap = () => {
           presetQuarter={drawerState.presetQuarter}
           onClose={handleCloseDrawer}
           onSave={handleSaveInitiative}
+          onPersist={handleSaveInitiative}
           onDelete={handleDelete}
           onLinkedAssessmentClick={handleLinkedAssessmentClick}
+          showSaveTemplateAction
+          showApplyTemplateAction
         />
       )}
 

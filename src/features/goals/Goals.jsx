@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import Select from 'react-select'
 import {
@@ -40,6 +41,7 @@ import { hasMeaningfulLinkedItems } from '../../shared/utils/linkedAssessments'
 import { formatApiError, isGoalNotFoundError } from '../../shared/utils/apiErrors'
 import {
   applyPlacementOverride,
+  buildInitiativeYears,
   buildPlacementStorageKey,
   buildScheduleOptions,
   NOT_SCHEDULED_LABEL,
@@ -52,14 +54,8 @@ const Goals = () => {
   const navigate = useNavigate()
   const activeOrganizationId = useAppStore((state) => state.activeOrganizationId)
   const currentYear = new Date().getFullYear()
-  const years = useMemo(
-    () => Array.from({ length: 5 }, (_, index) => currentYear + index),
-    [currentYear]
-  )
-  const yearOptions = useMemo(
-    () => Array.from({ length: 6 }, (_, index) => currentYear - 1 + index),
-    [currentYear]
-  )
+  const years = useMemo(() => buildInitiativeYears(currentYear), [currentYear])
+  const yearOptions = useMemo(() => buildInitiativeYears(currentYear), [currentYear])
   const scheduleOptions = useMemo(() => buildScheduleOptions(yearOptions), [yearOptions])
   const statusFilterOptions = [
     { value: 'All status', label: 'All status' },
@@ -129,7 +125,7 @@ const Goals = () => {
     saving: false,
   }))
   const [rowMenu, setRowMenu] = useState(null)
-  const [goalMenuId, setGoalMenuId] = useState(null)
+  const [goalMenu, setGoalMenu] = useState(null)
   const placementsStorageKey = useMemo(
     () => buildPlacementStorageKey(activeOrganizationId),
     [activeOrganizationId]
@@ -266,17 +262,39 @@ const Goals = () => {
     localStorage.removeItem('openGoalId')
   }, [goals])
 
+  const closeMenus = useCallback(() => {
+    setRowMenu(null)
+    setGoalMenu(null)
+  }, [])
+
+  const resolveMenuPosition = useCallback((target, menuHeight = 140) => {
+    const rect = target.getBoundingClientRect()
+    const menuWidth = 176
+    const gap = 8
+    const viewportPadding = 12
+    const maxLeft = window.innerWidth - menuWidth - viewportPadding
+    const left = Math.max(viewportPadding, Math.min(rect.right - menuWidth, maxLeft))
+    const preferredTop = rect.bottom + gap
+    const maxTop = window.innerHeight - menuHeight - viewportPadding
+    const top =
+      preferredTop <= maxTop
+        ? preferredTop
+        : Math.max(viewportPadding, rect.top - menuHeight - gap)
+    return { top, left }
+  }, [])
+
   useEffect(() => {
-    if (!rowMenu && !goalMenuId) {
+    if (!rowMenu && !goalMenu) {
       return
     }
-    const handleWindowClick = () => {
-      setRowMenu(null)
-      setGoalMenuId(null)
+    const handleViewportChange = () => closeMenus()
+    window.addEventListener('resize', handleViewportChange)
+    window.addEventListener('scroll', handleViewportChange, true)
+    return () => {
+      window.removeEventListener('resize', handleViewportChange)
+      window.removeEventListener('scroll', handleViewportChange, true)
     }
-    window.addEventListener('click', handleWindowClick)
-    return () => window.removeEventListener('click', handleWindowClick)
-  }, [goalMenuId, rowMenu])
+  }, [closeMenus, goalMenu, rowMenu])
 
   const filteredGoals = useMemo(() => {
     return goals.filter((goal) => {
@@ -496,8 +514,7 @@ const Goals = () => {
         return
       }
 
-      setRowMenu(null)
-      setGoalMenuId(null)
+      closeMenus()
       setLoadError('')
 
       const fallbackFromGoals = goals
@@ -569,16 +586,17 @@ const Goals = () => {
         setLoadError('Unable to load initiative')
       }
     },
-    [availableInitiatives, goals]
+    [availableInitiatives, closeMenus, goals]
   )
 
   const handleSaveInitiativeFromDrawer = useCallback(
-    async (payload) => {
+    async (payload, options = {}) => {
+      const closeOnSuccess = options.closeOnSuccess !== false
       const organizationId = Number(activeOrganizationId)
       const targetId = initiativeDrawerState.initiative?.id
       if (!organizationId || !targetId) {
         setLoadError('Select a client before updating initiatives.')
-        return
+        return null
       }
 
       setLoadError('')
@@ -647,9 +665,15 @@ const Goals = () => {
         upsertAvailableInitiatives([normalizedMapped])
         syncGoalsWithInitiatives([normalizedMapped])
 
-        handleCloseInitiativeDrawer()
+        if (closeOnSuccess) {
+          handleCloseInitiativeDrawer()
+        } else {
+          setInitiativeDrawerState({ open: true, mode: 'edit', initiative: normalizedMapped })
+        }
+        return normalizedMapped
       } catch (error) {
         setLoadError(formatApiError(error, 'Unable to update initiative'))
+        throw error
       }
     },
     [
@@ -994,7 +1018,7 @@ const Goals = () => {
         return next
       })
       setRowMenu((prev) => (prev?.goalId === goalId ? null : prev))
-      setGoalMenuId((prev) => (prev === goalId ? null : prev))
+      setGoalMenu((prev) => (prev?.goalId === goalId ? null : prev))
       setDialogState((prev) => (prev.goalId === goalId ? { ...prev, open: false } : prev))
     } catch {
       setGoalError('Unable to remove goal')
@@ -1307,33 +1331,26 @@ const Goals = () => {
 
               {isExpanded && (
               <div className="flex items-center gap-4">
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      setGoalMenuId((prev) => (prev === goal.id ? null : goal.id))
-                    }}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-500 hover:bg-gray-50"
-                    aria-label="Goal actions"
-                  >
-                    <FiMoreVertical className="text-xl" />
-                  </button>
-                  {goalMenuId === goal.id && (
-                    <div
-                      className="absolute right-0 top-10 z-50 w-44 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveGoal(goal.id)}
-                        className="w-full px-4 py-2 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
-                      >
-                        Remove goal
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    const position = resolveMenuPosition(event.currentTarget, 56)
+                    setRowMenu(null)
+                    setGoalMenu((prev) =>
+                      prev?.goalId === goal.id
+                        ? null
+                        : {
+                            goalId: goal.id,
+                            ...position,
+                          }
+                    )
+                  }}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-500 hover:bg-gray-50"
+                  aria-label="Goal actions"
+                >
+                  <FiMoreVertical className="text-xl" />
+                </button>
               </div>
               )}
             </div>
@@ -1451,63 +1468,29 @@ const Goals = () => {
                                 />
                               </td>
                               <td className="px-4 py-4 align-middle">
-                                <div className="relative flex items-center justify-end">
+                                <div className="flex items-center justify-end">
                                   <button
                                     type="button"
                                     onClick={(event) => {
                                       event.stopPropagation()
-                                      setRowMenu({
-                                        goalId: goal.id,
-                                        initiativeId: initiative.id,
-                                      })
+                                      const position = resolveMenuPosition(event.currentTarget, 132)
+                                      setGoalMenu(null)
+                                      setRowMenu((prev) =>
+                                        prev?.goalId === goal.id &&
+                                        prev?.initiativeId === initiative.id
+                                          ? null
+                                          : {
+                                              goalId: goal.id,
+                                              initiativeId: initiative.id,
+                                              ...position,
+                                            }
+                                      )
                                     }}
                                     className="inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100"
                                     aria-label="Row actions"
                                   >
                                     <FiMoreVertical className="text-xl" />
                                   </button>
-                                  {rowMenu?.goalId === goal.id &&
-                                    rowMenu?.initiativeId === initiative.id && (
-                                      <div
-                                        className="absolute right-0 top-10 z-50 w-44 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
-                                        onClick={(event) => event.stopPropagation()}
-                                      >
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            localStorage.setItem(
-                                              'openInitiativeId',
-                                              String(initiative.id)
-                                            )
-                                            setRowMenu(null)
-                                            navigate('/roadmap')
-                                          }}
-                                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                                        >
-                                          View on Roadmap
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            handleOpenInitiativeFromGoal(initiative.id)
-                                            setRowMenu(null)
-                                          }}
-                                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                                        >
-                                          Edit initiative
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            handleUnlinkInitiative(goal.id, initiative.id)
-                                            setRowMenu(null)
-                                          }}
-                                          className="w-full px-4 py-2 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
-                                        >
-                                          Unlink Initiative
-                                        </button>
-                                      </div>
-                                    )}
                                 </div>
                               </td>
                             </tr>
@@ -1545,9 +1528,12 @@ const Goals = () => {
           presetQuarter={null}
           onClose={handleCloseInitiativeDrawer}
           onSave={handleSaveInitiativeFromDrawer}
+          onPersist={handleSaveInitiativeFromDrawer}
           onDelete={handleDeleteInitiativeFromDrawer}
           onLinkedAssessmentClick={handleLinkedAssessmentClick}
           linkedAssessmentId={null}
+          showSaveTemplateAction
+          showApplyTemplateAction
         />
       )}
 
@@ -1846,6 +1832,78 @@ const Goals = () => {
           </div>
         </div>
       )}
+
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <>
+            {(goalMenu || rowMenu) && (
+              <button
+                type="button"
+                aria-label="Close actions menu"
+                onClick={closeMenus}
+                className="fixed inset-0 z-[70] cursor-default bg-transparent"
+              />
+            )}
+            {goalMenu && (
+              <div
+                className="fixed z-[80] w-44 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
+                style={{ top: goalMenu.top, left: goalMenu.left }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleRemoveGoal(goalMenu.goalId)
+                    closeMenus()
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
+                >
+                  Remove goal
+                </button>
+              </div>
+            )}
+            {rowMenu && (
+              <div
+                className="fixed z-[80] w-44 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
+                style={{ top: rowMenu.top, left: rowMenu.left }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.setItem('openInitiativeId', String(rowMenu.initiativeId))
+                    closeMenus()
+                    navigate('/roadmap')
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  View on Roadmap
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenus()
+                    handleOpenInitiativeFromGoal(rowMenu.initiativeId)
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Edit initiative
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleUnlinkInitiative(rowMenu.goalId, rowMenu.initiativeId)
+                    closeMenus()
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
+                >
+                  Unlink Initiative
+                </button>
+              </div>
+            )}
+          </>,
+          document.body
+        )}
     </div>
   )
 }

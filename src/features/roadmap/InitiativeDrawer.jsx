@@ -32,6 +32,7 @@ import {
   getInitiativeTemplateById,
   getInitiativeTemplates,
   saveInitiativeAsTemplate,
+  updateInitiativeTemplate,
   updateInitiative,
 } from '../../shared/services/initiativeService'
 import { downloadInitiativePdf } from '../../shared/services/reportService'
@@ -48,6 +49,7 @@ import {
   mergeLinkedItem,
   normalizeLinkedResponseLabel,
 } from '../../shared/utils/linkedAssessments'
+import { buildInitiativeYears } from '../../shared/utils/initiativeScheduling'
 import { mapInitiativeFromApi, mapInitiativeToApi } from './initiativeMapper'
 
 const INITIATIVE_TEMPLATE_KEY = 'initiativeTemplateById'
@@ -161,6 +163,25 @@ const resolveTemplateActionItems = (template) =>
     })
     .filter(Boolean)
 
+const mapFormToTemplatePayload = (form) => ({
+  name: cleanLinkedText(form?.title || '') || 'Initiative Template',
+  executive_summary: cleanLinkedText(form?.summary || ''),
+  one_time_fees: toArray(form?.oneTimeFees)
+    .map((fee) => ({
+      title: cleanLinkedText(fee?.title || ''),
+      amount: toSafeAmount(fee?.amount),
+    }))
+    .filter((fee) => fee.title),
+  recurring_fees: toArray(form?.recurringFees)
+    .map((fee) => ({
+      title: cleanLinkedText(fee?.title || ''),
+      amount: toSafeAmount(fee?.amount),
+      frequency: String(fee?.frequency || 'monthly').toLowerCase() === 'yearly' ? 'yearly' : 'monthly',
+      number_of_persons: Math.max(Number(fee?.peopleCount || 1), 1),
+    }))
+    .filter((fee) => fee.title),
+})
+
 const readInitiativeTemplateMap = () => {
   try {
     const raw = JSON.parse(localStorage.getItem(INITIATIVE_TEMPLATE_KEY) || '{}')
@@ -176,6 +197,18 @@ const writeInitiativeTemplateMap = (value) => {
   } catch {
     // ignore
   }
+}
+
+const upsertStoredTemplateMapEntry = (initiativeId, templateId, templateTitle = '') => {
+  if (!initiativeId || !templateId) {
+    return
+  }
+  const templateMap = readInitiativeTemplateMap()
+  templateMap[String(initiativeId)] = {
+    templateId,
+    templateTitle: cleanLinkedText(templateTitle || ''),
+  }
+  writeInitiativeTemplateMap(templateMap)
 }
 
 const removeTemplateFromStoredTemplateMap = (templateId) => {
@@ -407,8 +440,7 @@ const InitiativeDrawer = ({
     if (years?.length) {
       return years
     }
-    const current = new Date().getFullYear()
-    return Array.from({ length: 5 }, (_, index) => current + index)
+    return buildInitiativeYears()
   }, [years])
 
   const [availableGoals, setAvailableGoals] = useState([])
@@ -933,16 +965,70 @@ const InitiativeDrawer = ({
   }
 
   const handleSaveAsTemplate = async () => {
+    if (form.templateId) {
+      setSavingTemplate(true)
+      try {
+        const updatedPayload = await updateInitiativeTemplate(
+          Number(form.templateId),
+          mapFormToTemplatePayload(form)
+        )
+        const updatedTemplate = resolveTemplateEntity(updatedPayload) || updatedPayload
+        const updatedTemplateId = resolveTemplateId(updatedTemplate) || form.templateId
+        const updatedTemplateTitle =
+          resolveTemplateTitle(updatedTemplate) ||
+          cleanLinkedText(form.title) ||
+          cleanLinkedText(form.templateTitle || '') ||
+          'Initiative Template'
+
+        if (form?.id) {
+          upsertStoredTemplateMapEntry(form.id, updatedTemplateId, updatedTemplateTitle)
+        }
+
+        setSelectedTemplateId(updatedTemplateId)
+        setForm((prev) => ({
+          ...prev,
+          templateId: updatedTemplateId,
+          templateTitle: updatedTemplateTitle,
+        }))
+        setTemplateOptions((prev) => {
+          const next = Array.isArray(prev) ? [...prev] : []
+          const index = next.findIndex(
+            (template) => String(resolveTemplateId(template)) === String(updatedTemplateId)
+          )
+          if (index >= 0) {
+            next[index] = updatedTemplate
+            return next
+          }
+          return [updatedTemplate, ...next]
+        })
+        setToast({
+          type: 'success',
+          message: `Template "${updatedTemplateTitle}" updated.`,
+        })
+      } catch (error) {
+        setToast({
+          type: 'error',
+          message: formatApiError(error, 'Unable to update template. Please try again.'),
+        })
+      } finally {
+        setSavingTemplate(false)
+      }
+      return
+    }
+
     if (mode !== 'edit' || !form?.id || !isNumericLike(form.id)) {
       setToast({
         type: 'error',
-        message: 'Save the initiative first, then save it as a template.',
+        message:
+          'Saving a new template from a brand-new unsaved initiative drawer requires a template create API.',
       })
       return
     }
 
     setSavingTemplate(true)
     try {
+      const existingTemplateId = form.templateId || null
+      const existingTemplateTitle = cleanLinkedText(form.templateTitle || '')
       const organizationId =
         Number(
           initiative?.organizationId ??
@@ -954,8 +1040,6 @@ const InitiativeDrawer = ({
         throw new Error('Missing organization id')
       }
 
-      // Save current drawer values first so the template snapshot uses the latest title,
-      // executive summary, and budget instead of older server-side data.
       const persistedPayload = mapInitiativeToApi(form, organizationId, {
         goalId: form?.goalId ?? null,
       })
@@ -963,9 +1047,22 @@ const InitiativeDrawer = ({
 
       const payload = await saveInitiativeAsTemplate(Number(form.id))
       const savedTemplate = resolveTemplateEntity(payload) || payload
-      const savedTemplateId = resolveTemplateId(savedTemplate)
+      const savedTemplateId = resolveTemplateId(savedTemplate) || existingTemplateId
       const savedTemplateTitle =
-        resolveTemplateTitle(savedTemplate) || cleanLinkedText(form.title) || 'Initiative Template'
+        resolveTemplateTitle(savedTemplate) ||
+        existingTemplateTitle ||
+        cleanLinkedText(form.title) ||
+        'Initiative Template'
+
+      if (savedTemplateId) {
+        upsertStoredTemplateMapEntry(form.id, savedTemplateId, savedTemplateTitle)
+        setSelectedTemplateId(savedTemplateId)
+        setForm((prev) => ({
+          ...prev,
+          templateId: savedTemplateId,
+          templateTitle: savedTemplateTitle,
+        }))
+      }
 
       if (savedTemplateId) {
         setTemplateOptions((prev) => {
@@ -983,12 +1080,14 @@ const InitiativeDrawer = ({
 
       setToast({
         type: 'success',
-        message: `Template "${savedTemplateTitle}" saved.`,
+        message: existingTemplateId
+          ? `Template "${savedTemplateTitle}" updated.`
+          : `Template "${savedTemplateTitle}" saved.`,
       })
-    } catch {
+    } catch (error) {
       setToast({
         type: 'error',
-        message: 'Unable to save initiative as template. Please try again.',
+        message: formatApiError(error, 'Unable to save initiative as template. Please try again.'),
       })
     } finally {
       setSavingTemplate(false)
@@ -1159,12 +1258,7 @@ const InitiativeDrawer = ({
       : null
 
     if (form?.id && form.templateId) {
-      const templateMap = readInitiativeTemplateMap()
-      templateMap[String(form.id)] = {
-        templateId: form.templateId,
-        templateTitle: cleanLinkedText(form.templateTitle || ''),
-      }
-      writeInitiativeTemplateMap(templateMap)
+      upsertStoredTemplateMapEntry(form.id, form.templateId, form.templateTitle)
     }
 
     onSave({
@@ -1224,14 +1318,18 @@ const InitiativeDrawer = ({
             <p className="text-xs text-gray-500">Manage roadmap initiatives in one place.</p>
           </div>
           <div className="flex items-center gap-2">
-            {mode === 'edit' && showSaveTemplateAction && (
+            {showSaveTemplateAction && (mode === 'edit' || form.templateId) && (
               <button
                 type="button"
                 onClick={handleSaveAsTemplate}
                 disabled={savingTemplate}
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {savingTemplate ? 'Saving...' : 'Save as Template'}
+                {savingTemplate
+                  ? 'Saving...'
+                  : form.templateId
+                    ? 'Update Template'
+                    : 'Save as Template'}
               </button>
             )}
             {showApplyTemplateAction && (

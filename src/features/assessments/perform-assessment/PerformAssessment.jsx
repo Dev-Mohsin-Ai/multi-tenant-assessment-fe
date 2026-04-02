@@ -31,6 +31,7 @@ import { mapInitiativeFromApi, mapInitiativeToApi } from '../../roadmap/initiati
 import { useAppStore } from '../../../shared/store/useAppStore'
 import ToastMessage from '../../../shared/components/ToastMessage'
 import { normalizeScoreToPercent } from '../../../shared/utils/scoreUtils'
+import { buildInitiativeYears } from '../../../shared/utils/initiativeScheduling'
 
 const toArray = (value) => {
   if (Array.isArray(value)) {
@@ -630,10 +631,7 @@ const PerformAssessment = ({
   }, [pendingComments])
 
   const categories = useMemo(() => assessment?.categories || [], [assessment])
-  const years = useMemo(() => {
-    const currentYear = new Date().getFullYear()
-    return Array.from({ length: 5 }, (_, index) => currentYear + index)
-  }, [])
+  const years = useMemo(() => buildInitiativeYears(), [])
   const templateTitle =
     assessment?.template_title ||
     assessment?.templateTitle ||
@@ -1461,7 +1459,8 @@ const PerformAssessment = ({
     }
   }
 
-  const handleSaveInitiativeFromAssessment = (updated) => {
+  const handleSaveInitiativeFromAssessment = (updated, options = {}) => {
+    const closeOnSuccess = options.closeOnSuccess !== false
     const handleCreateFromAssessment = async () => {
       const organizationId =
         assessment?.organizationId || Number(activeOrganizationId)
@@ -1470,7 +1469,7 @@ const PerformAssessment = ({
           type: 'error',
           message: 'Select a client before creating an initiative.',
         })
-        return
+        return null
       }
 
       const pendingLinkedItem = initiativeEditor.pendingLinkedItem
@@ -1573,17 +1572,28 @@ const PerformAssessment = ({
         }
 
         setInitiatives((prev) => [mapped, ...prev])
-        setInitiativeEditor({
-          open: false,
-          mode: 'edit',
-          initiative: null,
-          pendingLinkedItem: null,
-        })
-      } catch {
+        if (closeOnSuccess) {
+          setInitiativeEditor({
+            open: false,
+            mode: 'edit',
+            initiative: null,
+            pendingLinkedItem: null,
+          })
+        } else {
+          setInitiativeEditor({
+            open: true,
+            mode: 'edit',
+            initiative: mapped,
+            pendingLinkedItem: null,
+          })
+        }
+        return mapped
+      } catch (error) {
         setToast({
           type: 'error',
           message: 'Unable to create initiative. Please try again.',
         })
+        throw error
       }
     }
 
@@ -1613,7 +1623,7 @@ const PerformAssessment = ({
           type: 'error',
           message: 'Unable to update initiative. Please try again.',
         })
-        return
+        return null
       }
 
       try {
@@ -1666,17 +1676,28 @@ const PerformAssessment = ({
             String(item.id) === String(updated.id) ? normalizedUpdated : item
           )
         )
-        setInitiativeEditor({
-          open: false,
-          mode: 'edit',
-          initiative: null,
-          pendingLinkedItem: null,
-        })
+        if (closeOnSuccess) {
+          setInitiativeEditor({
+            open: false,
+            mode: 'edit',
+            initiative: null,
+            pendingLinkedItem: null,
+          })
+        } else {
+          setInitiativeEditor({
+            open: true,
+            mode: 'edit',
+            initiative: normalizedUpdated,
+            pendingLinkedItem: null,
+          })
+        }
+        return normalizedUpdated
       } catch (error) {
         setToast({
           type: 'error',
           message: resolveApiErrorMessage(error, 'Unable to update initiative.'),
         })
+        throw error
       }
     }
 
@@ -2108,10 +2129,11 @@ const PerformAssessment = ({
           })
         }
         onSave={handleSaveInitiativeFromAssessment}
+        onPersist={handleSaveInitiativeFromAssessment}
         onDelete={handleDeleteInitiativeFromAssessment}
         onLinkedAssessmentClick={handleLinkedAssessmentClick}
         linkedAssessmentId={assessmentId}
-        showSaveTemplateAction={!isCompleted}
+        showSaveTemplateAction={!readOnly}
         showApplyTemplateAction
       />
       {isDeleteDialogOpen && (
